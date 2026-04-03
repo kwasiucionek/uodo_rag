@@ -6,15 +6,12 @@ services:
       - cluster.name=uodo-rag
       - node.name=uodo-node1
       - discovery.type=single-node
-      - bootstrap.memory_lock=false       # ← zmień na false
+      - bootstrap.memory_lock=false
       - OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g
       - DISABLE_SECURITY_PLUGIN=true
       - DISABLE_INSTALL_DEMO_CONFIG=true
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-      # usuń całkowicie sekcję memlock
+      - OPENSEARCH_BOOTSTRAP_MEMORY_LOCK=false
+      - bootstrap.system_call_filter=false
     volumes:
       - opensearch-data:/usr/share/opensearch/data
     ports:
