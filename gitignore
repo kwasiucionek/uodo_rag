@@ -11,8 +11,6 @@ build/
 .eggs/
 
 # ── Dane i modele ─────────────────────────────────────────────────
-tools/uodo_decisions*.jsonl
-tools/uodo_test*.jsonl
 *.pkl
 *.bin
 *.safetensors

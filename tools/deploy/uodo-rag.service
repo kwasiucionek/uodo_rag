@@ -1,0 +1,33 @@
+[Unit]
+Description=UODO RAG — FastAPI backend
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/kwasiucionek/uodo_rag
+
+# Środowisko conda/venv
+ExecStart=/home/kwasiucionek/uodo_rag/.venv/bin/uvicorn api:app \
+    --host 127.0.0.1 \
+    --port 8503 \
+    --workers 2 \
+    --log-level info
+
+Restart=on-failure
+RestartSec=10s
+
+# Zmienne środowiskowe z pliku .env
+EnvironmentFile=/home/kwasiucionek/uodo_rag/.env
+
+# Logi
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=uodo-rag
+
+# Limit czasu startu (model embeddingowy ładuje się ~30s)
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
