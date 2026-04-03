@@ -3,11 +3,6 @@
 #
 # Uruchom lokalnie:
 #   bash deploy/deploy.sh
-#
-# Wymagania:
-#   - Repozytorium git dostępne z serwera (GitHub/GitLab)
-#   - Plik .env przygotowany lokalnie (zostanie skopiowany przez scp)
-#   - Plik tools/uodo_decisions.jsonl na serwerze lub do skopiowania
 
 set -euo pipefail
 
@@ -15,7 +10,7 @@ set -euo pipefail
 REMOTE_HOST="root@steve141.mikrus.xyz"
 REMOTE_PORT="10141"
 REMOTE_DIR="/home/kwasiucionek/uodo_rag"
-GIT_REPO="https://github.com/kwasiucionek/uodo-rag.git"  # ← zmień na swoje repo
+GIT_REPO="https://github.com/kwasiucionek/uodo-rag.git"
 LOCAL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VITE_API_URL="http://pro01.mikr.us:44306"
 
@@ -30,7 +25,7 @@ echo ""
 echo "[1/6] Build frontendu..."
 cd "$LOCAL_DIR/frontend"
 VITE_API_URL="$VITE_API_URL" npm run build
-echo "✅ Frontend zbudowany: frontend/dist/app/"
+echo "✅ Frontend zbudowany"
 
 # ── 2. Skopiuj .env i dist na serwer ─────────────────────────────
 echo ""
@@ -39,20 +34,20 @@ echo "[2/6] Kopiowanie .env i frontendu..."
 scp -P "$REMOTE_PORT" "$LOCAL_DIR/.env" \
     "$REMOTE_HOST:/tmp/uodo_rag_env"
 
-# Frontend dist (nie jest w git)
 ssh -p "$REMOTE_PORT" "$REMOTE_HOST" "mkdir -p $REMOTE_DIR/frontend/dist"
-scp -P "$REMOTE_PORT" -r "$LOCAL_DIR/frontend/dist/app" \
+
+scp -P "$REMOTE_PORT" -r "$LOCAL_DIR/frontend/dist/." \
     "$REMOTE_HOST:$REMOTE_DIR/frontend/dist/"
 
 echo "✅ Pliki skopiowane"
 
 # ── 3. Git clone + konfiguracja serwera ──────────────────────────
+# Uwaga: zmienne $REMOTE_DIR i $GIT_REPO przekazywane jako env do heredoc
 echo ""
 echo "[3/6] Git clone + konfiguracja..."
-$SSH bash << REMOTE
+REMOTE_DIR="$REMOTE_DIR" GIT_REPO="$GIT_REPO" $SSH bash << 'REMOTE'
 set -euo pipefail
 
-# Klonowanie repo
 if [ -d "$REMOTE_DIR/.git" ]; then
     echo "  Repo już istnieje — git pull"
     cd "$REMOTE_DIR"
@@ -63,18 +58,15 @@ else
     cd "$REMOTE_DIR"
 fi
 
-# Przenieś .env
 mv /tmp/uodo_rag_env "$REMOTE_DIR/.env"
 echo "  .env zainstalowany"
 
-# vm.max_map_count dla OpenSearch
 if ! grep -q "vm.max_map_count" /etc/sysctl.conf 2>/dev/null; then
     echo "vm.max_map_count=262144" >> /etc/sysctl.conf
     sysctl -w vm.max_map_count=262144
     echo "  vm.max_map_count ustawiony"
 fi
 
-# Python venv
 cd "$REMOTE_DIR"
 if [ ! -d ".venv" ]; then
     python3 -m venv .venv
@@ -124,9 +116,9 @@ REMOTE
 echo ""
 echo "[6/6] Systemd..."
 $SSH bash << 'REMOTE'
-cp /home/kwasiucionek/uodo_rag/deploy/uodo-rag.service     /etc/systemd/system/
-cp /home/kwasiucionek/uodo_rag/deploy/uodo-update.service  /etc/systemd/system/
-cp /home/kwasiucionek/uodo_rag/deploy/uodo-update.timer    /etc/systemd/system/
+cp /home/kwasiucionek/uodo_rag/deploy/uodo-rag.service    /etc/systemd/system/
+cp /home/kwasiucionek/uodo_rag/deploy/uodo-update.service /etc/systemd/system/
+cp /home/kwasiucionek/uodo_rag/deploy/uodo-update.timer   /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now uodo-rag
 systemctl enable --now uodo-update.timer
