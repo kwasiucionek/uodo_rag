@@ -23,8 +23,9 @@ update_state.json
 !.env.example
 
 # ── Frontend ──────────────────────────────────────────────────────
+# ── Frontend ──────────────────────────────────────────────────────
 frontend/node_modules/
-frontend/dist/
+frontend/dist/app/assets/
 frontend/.vite/
 
 # ── Logi ─────────────────────────────────────────────────────────
