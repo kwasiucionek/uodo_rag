@@ -137,6 +137,7 @@
 }
 
 .uodo-rag-widget .rag-answer-body {
+	font-size: 0.82rem;
     padding: 1rem 1.2rem;
     line-height: 1.7;
     white-space: pre-wrap;
