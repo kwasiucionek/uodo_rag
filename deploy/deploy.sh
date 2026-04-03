@@ -42,15 +42,17 @@ scp -P "$REMOTE_PORT" -r "$LOCAL_DIR/frontend/dist/." \
 echo "✅ Pliki skopiowane"
 
 # ── 3. Git clone + konfiguracja serwera ──────────────────────────
-# Uwaga: zmienne $REMOTE_DIR i $GIT_REPO przekazywane jako env do heredoc
 echo ""
 echo "[3/6] Git clone + konfiguracja..."
-REMOTE_DIR="$REMOTE_DIR" GIT_REPO="$GIT_REPO" $SSH bash << 'REMOTE'
+$SSH bash -s "$REMOTE_DIR" "$GIT_REPO" << 'REMOTE'
 set -euo pipefail
+REMOTE_DIR="$1"
+GIT_REPO="$2"
 
 if [ -d "$REMOTE_DIR/.git" ]; then
     echo "  Repo już istnieje — git pull"
     cd "$REMOTE_DIR"
+    git config --global --add safe.directory "$REMOTE_DIR"  # ← dodaj
     git pull
 else
     echo "  Klonowanie repo..."
@@ -80,9 +82,6 @@ echo "  Zależności Python zainstalowane"
 
 mkdir -p logs
 REMOTE
-
-echo "✅ Serwer skonfigurowany"
-
 # ── 4. OpenSearch ────────────────────────────────────────────────
 echo ""
 echo "[4/6] OpenSearch..."

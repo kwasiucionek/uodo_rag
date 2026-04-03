@@ -5,15 +5,15 @@ System RAG (Retrieval-Augmented Generation) do przeszukiwania decyzji Prezesa Ur
 ## Architektura
 
 ```
-FastAPI backend (api.py)          OpenSearch 2.18
-     ↑ REST + SSE                      ↑
-     │                           indeks wektorowy
-     ├── widget.iife.js          (kNN + BM25 + RRF)
-     │   osadzalny na dowolnej
-     │   stronie przez <script>
-     │
-     └── standalone SPA
-         React + Vite + TypeScript
+Internet
+  ↓
+nginx (port 44306)
+  ├── /          → frontend React (SPA)
+  ├── /api/      → FastAPI :8503
+  └── /developer → dokumentacja API
+
+FastAPI backend ←→ OpenSearch 2.18
+                    (kNN + BM25 + RRF + graf cytowań)
 ```
 
 **Trzy źródła wiedzy:**
@@ -33,21 +33,20 @@ FastAPI backend (api.py)          OpenSearch 2.18
 - Python 3.11+
 - Node.js 20+
 - Docker (dla OpenSearch)
-- GPU z min. 8 GB VRAM (rekomendowane), lub CPU
+- GPU z min. 6 GB VRAM (rekomendowane do indeksowania), lub CPU
 
 ---
 
-## Instalacja
+## Instalacja lokalna
 
 ### 1. Klonowanie i środowisko
 
 ```bash
-git clone <repo>
+git clone https://github.com/kwasiucionek/uodo-rag.git
 cd uodo-rag
 
 python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# .venv\Scripts\activate   # Windows
+source .venv/bin/activate
 
 pip install -r requirements.txt
 pip install fastapi "uvicorn[standard]"
@@ -55,7 +54,7 @@ pip install fastapi "uvicorn[standard]"
 
 ### 2. Zmienne środowiskowe
 
-Utwórz plik `.env` w katalogu głównym:
+Utwórz plik `.env` w katalogu głównym (wzorzec w `.env.example`):
 
 ```env
 # OpenSearch
@@ -72,8 +71,15 @@ OLLAMA_CLOUD_API_KEY=twoj_klucz
 # LLM — Groq (alternatywny)
 GROQ_API_KEY=twoj_klucz
 
-# CORS — domeny frontendowe (przecinek jako separator)
-ALLOWED_ORIGINS=http://localhost:5173,https://orzeczenia.uodo.gov.pl
+# CORS
+ALLOWED_ORIGINS=http://localhost:5173
+
+# Admin (opcjonalny klucz dla /api/admin/update)
+ADMIN_KEY=
+
+# Domyślny provider i model LLM
+DEFAULT_LLM_PROVIDER=Ollama
+DEFAULT_LLM_MODEL=mistral-large-3:675b-cloud
 ```
 
 ### 3. OpenSearch
@@ -83,10 +89,9 @@ docker compose up -d
 
 # Weryfikacja (poczekaj ~30 sekund)
 curl http://localhost:9200
-# {"version":{"number":"2.18.0",...}}
 ```
 
-> **Linux:** Jeśli OpenSearch nie startuje, uruchom:
+> **Linux:** Jeśli OpenSearch nie startuje:
 > ```bash
 > sudo sysctl -w vm.max_map_count=262144
 > ```
@@ -96,16 +101,16 @@ curl http://localhost:9200
 #### 4a. Scrapowanie decyzji UODO
 
 ```bash
-# Pobierz wszystkie decyzje z portalu orzeczenia.uodo.gov.pl
+# Pobierz wszystkie decyzje (~560, kilka godzin)
 python tools/uodo_scraper.py --output tools/uodo_decisions.jsonl
 
 # Test (3 decyzje)
 python tools/uodo_scraper.py --test
 ```
 
-Scraper pobiera treść w formacie XML i automatycznie wyciąga:
-- Pełną treść podzieloną na sekcje (`xType="sect"`)
-- Referencje do aktów prawnych z tagów `<xLexLink xRef="...">`
+Scraper pobiera XML i automatycznie wyciąga:
+- Treść podzieloną na sekcje (`xType="sect"`) — Sentencja, Stan faktyczny, sekcje uzasadnienia
+- Referencje z tagów `<xLexLink xRef="...">` z pełnym URN (ISAP, EUR-Lex, NSA, MS Portal)
 - Metadane: taksonomia, status, daty, encje
 
 #### 4b. Indeksowanie
@@ -118,18 +123,16 @@ python tools/opensearch_indexer.py --mode all \
 
 # Jeśli OOM na GPU:
 python tools/opensearch_indexer.py --mode all \
-  --jsonl   tools/uodo_decisions.jsonl \
-  --md-act  tools/D20191781L.md \
+  --jsonl tools/uodo_decisions.jsonl \
+  --md-act tools/D20191781L.md \
   --md-rodo tools/rodo_2016_679_pl.md \
   --batch-size 8
 
-# Indeksowanie na CPU (bez GPU):
+# Tylko CPU:
 CUDA_VISIBLE_DEVICES="" python tools/opensearch_indexer.py --mode all ...
 ```
 
-Czas indeksowania: ~20–40 min na GPU, ~2–4 h na CPU.
-
-Tryby:
+Czas: ~20–40 min na GPU, ~2–4 h na CPU.
 
 | Flaga | Opis |
 |---|---|
@@ -139,31 +142,19 @@ Tryby:
 | `--mode all` | Wszystkie typy |
 | `--rebuild` | Usuń i przeindeksuj od nowa |
 
-#### 4c. Opcjonalnie — słowa kluczowe dla artykułów
-
-```bash
-python tools/enrich_act_keywords.py --provider ollama --model qwen3:14b
-```
-
 ---
 
 ## Uruchomienie
 
-### Backend (FastAPI)
+### Backend
 
 ```bash
 uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Sprawdź:
-
 ```bash
 curl http://localhost:8000/health
 # {"status":"ok","opensearch":"ok","embedder":"ok"}
-
-curl -s -X POST http://localhost:8000/api/search \
-  -H "Content-Type: application/json" \
-  -d '{"query":"dane genetyczne"}' | python -m json.tool
 ```
 
 ### Frontend
@@ -171,71 +162,41 @@ curl -s -X POST http://localhost:8000/api/search \
 ```bash
 cd frontend
 npm install
-
-# Tryb deweloperski
 VITE_API_URL=http://localhost:8000 npm run dev
 # → http://localhost:5173
 ```
 
 ---
 
-## Build produkcyjny
+## Funkcje UI
 
-### Standalone SPA
+- **Wyszukiwanie hybrydowe** — BM25 + kNN + graf cytowań, wyniki pojawiają się natychmiast (równolegle ze streamingiem AI)
+- **Autouzupełnianie** — tagi i sygnatury z debouncem 300ms
+- **Sidebar z filtrami** — status, rok, sektor, rodzaj decyzji, środek naprawczy
+- **Zakładki** — Decyzje UODO / Ustawa u.o.d.o. / RODO z licznikami wyników
+- **Odpowiedź AI** — streaming SSE, renderowanie Markdown + tabele (remark-gfm)
+- **Widok dokumentu** — sekcje z nawigacją ↑↓, referencje klikalne (ISAP, EUR-Lex, NSA, MS Portal, TSUE)
+- **Paginacja** — 10 decyzji/stronę, po stronie klienta
 
-```bash
-cd frontend
-VITE_API_URL=https://rag.uodo.gov.pl npm run build
-# Wynik: frontend/dist/app/
-```
+---
 
-Serwuj przez nginx:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name rag.uodo.gov.pl;
-
-    root /var/www/uodo-rag/app;
-    index index.html;
-
-    # SPA — przekieruj wszystkie ścieżki do index.html
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Proxy do backendu FastAPI
-    location /api/ {
-        proxy_pass         http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header   Connection '';        # SSE wymaga keep-alive
-        proxy_buffering    off;                  # SSE wymaga wyłączonego bufora
-        proxy_cache        off;
-    }
-}
-```
-
-### Osadzalny widget
+## Widget osadzalny
 
 ```bash
 cd frontend
 VITE_API_URL=https://rag.uodo.gov.pl npm run build -- --mode widget
-# Wynik: frontend/dist/widget.iife.js
+# → frontend/dist/widget.iife.js
 ```
 
-Użycie na dowolnej stronie:
-
 ```html
-<!-- Metoda 1: ręczna inicjalizacja -->
-<div id="uodo-rag-root"></div>
-<script src="https://rag.uodo.gov.pl/widget.iife.js"></script>
-<script>
-  UodoRag.mount('#uodo-rag-root', { useLLM: true })
-</script>
-
-<!-- Metoda 2: Web Component (automatyczna) -->
-<script src="https://rag.uodo.gov.pl/widget.iife.js"></script>
+<!-- Web Component -->
+<script src="widget.iife.js"></script>
 <uodo-rag-widget api-url="https://rag.uodo.gov.pl"></uodo-rag-widget>
+
+<!-- Ręczna inicjalizacja -->
+<div id="uodo-rag"></div>
+<script src="widget.iife.js"></script>
+<script>UodoRag.mount('#uodo-rag', { useLLM: true })</script>
 ```
 
 ---
@@ -244,105 +205,115 @@ Użycie na dowolnej stronie:
 
 ```
 .
-├── api.py                        # FastAPI backend — endpointy REST + SSE
-├── config.py                     # Stałe i zmienne środowiskowe
-├── opensearch_client.py          # Klient OpenSearch, schemat indeksu, query builders
-├── search.py                     # Logika wyszukiwania (kNN + BM25 + hybrid RRF + graf)
-├── llm.py                        # Wywołania LLM (Ollama Cloud / Groq)
-├── models.py                     # Modele Pydantic + szablony Jinja2 kontekstu
-├── ui.py                         # Budowanie kontekstu LLM, karty wyników (Streamlit)
-├── main.py                       # Aplikacja Streamlit (narzędzie deweloperskie)
+├── api.py                     # FastAPI — REST + SSE + dokumentacja
+├── config.py                  # Stałe i zmienne środowiskowe
+├── opensearch_client.py       # Klient OpenSearch, schemat indeksu, query builders
+├── search.py                  # Wyszukiwanie hybrydowe, graf, tagi, taksonomia
+├── llm.py                     # LLM streaming i dekompozycja (Ollama / Groq)
+├── models.py                  # Modele Pydantic + szablony Jinja2
+├── ui.py                      # Budowanie kontekstu LLM
+├── main.py                    # Aplikacja Streamlit (narzędzie deweloperskie)
 ├── requirements.txt
-├── docker-compose.yml            # OpenSearch single-node
-│
-├── tools/
-│   ├── uodo_scraper.py           # Scraper decyzji z API portalu UODO (XML)
-│   ├── opensearch_indexer.py     # Indeksowanie wszystkich typów dokumentów
-│   ├── enrich_act_keywords.py    # Generowanie tagów dla artykułów przez LLM
-│   ├── eval.py                   # Automatyczna ewaluacja (10 złotych pytań)
-│   ├── enrich_jsonl_taxonomy.py  # (legacy) wzbogacanie starych JSONL
-│   ├── D20191781L.md             # Tekst ustawy o ochronie danych osobowych
-│   └── rodo_2016_679_pl.md       # Tekst RODO w języku polskim
-│
-└── frontend/
-    ├── package.json
-    ├── vite.config.ts            # Dwa tryby: standalone app i widget IIFE
-    └── src/
-        ├── api.ts                # Typowany klient API
-        ├── hooks/useSearch.ts    # Hook — stan wyszukiwania + streaming LLM
-        ├── UodoRagWidget.tsx     # Główny komponent widgetu
-        ├── main.tsx              # Entry point — standalone SPA
-        ├── widget.tsx            # Entry point — osadzalny widget + Web Component
-        └── styles/widget.css     # Style kompatybilne z UODO design system
+├── docker-compose.yml         # OpenSearch single-node (lokalny dev)
+├── docs/
+│   └── index.html             # Dokumentacja API dla developerów
+├── deploy/
+│   ├── deploy.sh              # Pierwsze wdrożenie (git clone + konfiguracja)
+│   ├── update.sh              # Aktualizacja (git pull + restart)
+│   ├── nginx-uodo-rag.conf    # Konfiguracja nginx (port 44306)
+│   ├── uodo-rag.service       # Systemd service dla FastAPI
+│   ├── uodo-update.service    # Systemd service dla delta-update
+│   ├── uodo-update.timer      # Systemd timer (codziennie o 6:00)
+│   └── docker-compose.yml     # OpenSearch produkcja (2GB heap)
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.ts         # Dwa tryby: standalone SPA i widget IIFE
+│   └── src/
+│       ├── api.ts             # Typowany klient API
+│       ├── hooks/
+│       │   ├── useSearch.ts   # Stan wyszukiwania + streaming LLM
+│       │   └── useSuggest.ts  # Autouzupełnianie z debouncem
+│       ├── UodoRagWidget.tsx  # Główny komponent (filtry, zakładki, paginacja)
+│       ├── SearchInput.tsx    # Pole wyszukiwania z dropdownem sugestii
+│       ├── FiltersPanel.tsx   # Sidebar z filtrami taksonomii
+│       ├── DocumentView.tsx   # Widok pełnej decyzji z sekcjami i referencjami
+│       ├── main.tsx           # Entry point — standalone SPA
+│       ├── widget.tsx         # Entry point — osadzalny widget + Web Component
+│       └── styles/widget.css  # Style (UODO design system)
+└── tools/
+    ├── uodo_scraper.py        # Scraper XML z portalu UODO
+    ├── opensearch_indexer.py  # Indeksowanie (granularność: sekcja XML)
+    ├── update_decisions.py    # Delta-aktualizacja nowych decyzji
+    ├── enrich_act_keywords.py # Tagi dla artykułów przez LLM
+    ├── eval.py                # Ewaluacja jakości (10 złotych pytań)
+    ├── D20191781L.md          # Tekst ustawy u.o.d.o.
+    └── rodo_2016_679_pl.md    # Tekst RODO
 ```
 
 ---
 
 ## API
 
-### `POST /api/search`
-
-```json
-{
-  "query": "monitoring wizyjny w miejscu pracy",
-  "filters": {
-    "status": "prawomocna",
-    "term_sector": ["Zatrudnienie"],
-    "year_from": 2022
-  },
-  "use_graph": true,
-  "top_k": 8
-}
-```
-
-### `POST /api/answer/stream`
-
-Streaming SSE. Klient odbiera zdarzenia:
-
-```
-data: {"type": "token", "content": "Na podstawie"}
-data: {"type": "token", "content": " decyzji..."}
-data: {"type": "done"}
-```
-
-### Pozostałe endpointy
+Pełna dokumentacja: `http://localhost:8000/developer`  
+Swagger UI: `http://localhost:8000/docs`
 
 | Endpoint | Opis |
 |---|---|
-| `GET /api/tags` | Wszystkie tagi (autocomplete) |
-| `GET /api/taxonomy` | Opcje filtrów taksonomii |
-| `GET /api/stats` | Statystyki kolekcji |
-| `GET /api/signature/{sig}` | Decyzja po sygnaturze |
+| `POST /api/search` | Wyszukiwanie hybrydowe (docs + tagi) |
+| `POST /api/answer/stream` | Streaming odpowiedzi LLM (SSE) |
 | `POST /api/decompose` | Dekompozycja zapytania przez LLM |
+| `GET /api/suggest` | Autouzupełnianie (tagi + sygnatury) |
+| `GET /api/document` | Pełna decyzja (wszystkie sekcje + referencje z URN) |
+| `GET /api/signature/{sig}` | Metadane decyzji (chunk 0) |
+| `GET /api/tags` | Wszystkie tagi |
+| `GET /api/taxonomy` | Opcje filtrów taksonomii |
+| `GET /api/stats` | Statystyki kolekcji i grafu |
+| `POST /api/admin/update` | Delta-aktualizacja decyzji |
+| `GET /api/admin/update/status` | Status ostatniej aktualizacji |
 | `GET /health` | Health check |
-
-Pełna dokumentacja interaktywna: `http://localhost:8000/docs`
 
 ---
 
-## Ewaluacja
+## Deploy na Mikrus VPS
 
 ```bash
-# Pełna ewaluacja (10 złotych pytań)
-python tools/eval.py
+# Pierwsze wdrożenie (lokalnie)
+bash deploy/deploy.sh
 
-# Jedno pytanie z pełną odpowiedzią
-python tools/eval.py --question 3 --verbose
+# Aktualizacja kodu
+bash deploy/update.sh
 
-# Wyniki zapisywane do eval_results.json
+# Aktualizacja kodu + przebudowa frontendu
+bash deploy/update.sh --frontend
+```
+
+Po pierwszym deployu — indeksowanie na serwerze:
+
+```bash
+ssh root@steve141.mikrus.xyz -p 10141
+cd /home/kwasiucionek/uodo_rag
+source .venv/bin/activate
+CUDA_VISIBLE_DEVICES="" python tools/opensearch_indexer.py --mode all \
+  --jsonl tools/uodo_decisions.jsonl \
+  --md-act tools/D20191781L.md \
+  --md-rodo tools/rodo_2016_679_pl.md
+```
+
+Automatyczna aktualizacja nowych decyzji (systemd timer — codziennie o 6:00):
+
+```bash
+systemctl status uodo-update.timer
+journalctl -u uodo-update --since today
 ```
 
 ---
 
 ## Zmiana modelu embeddingowego
 
-Wszystkie modele produkują wektory dim=1024 — schemat OpenSearch nie wymaga zmian. Po zmianie modelu obowiązkowe przeindeksowanie:
+Po zmianie `EMBED_MODEL` w `.env` obowiązkowe przeindeksowanie:
 
 ```bash
-# Usuń stary indeks
 curl -X DELETE http://localhost:9200/uodo_decisions
-
-# Zmień EMBED_MODEL w .env, potem przeindeksuj
 python tools/opensearch_indexer.py --mode all ...
 ```
 
