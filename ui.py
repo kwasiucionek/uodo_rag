@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 import streamlit as st
+
 from config import GDPR_URL, ISAP_ACT_URL, UODO_PORTAL_BASE
 from models import (
     CONTEXT_TYPE_ORDER,
@@ -298,7 +299,7 @@ def _extract_fragment(content: str, query: str, max_len: int = 2000) -> str:
 def build_context(
     docs: list[dict[str, Any]],
     query: str,
-    max_chars: int = 18000,
+    max_chars: int = 7000,
     filters: dict[str, Any] | None = None,
     memory: AgentMemory | None = None,
 ) -> str:

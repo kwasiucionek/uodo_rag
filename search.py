@@ -86,6 +86,64 @@ def set_embedder(embedder) -> None:
     _injected_embedder = embedder
 
 
+def _disable_xformers_cpu(model) -> int:
+    """
+    Wyłącza xformers w warstwach uwagi modelu gdy działa na CPU.
+
+    Modele z custom kodem (np. stella-pl-retrieval-mini-8k oparte na
+    stella_en_400M_v5) ignorują attn_implementation="eager" i bezpośrednio
+    wywołują xformers.ops.fmha.memory_efficient_attention, które wymaga CUDA.
+
+    Konieczne są trzy kroki:
+    1. Wyłączyć use_memory_efficient_attention na każdej warstwie uwagi
+       — model przełącza się wtedy na wbudowaną metodę _attention (PyTorch).
+    2. Wyłączyć flagi use_memory_efficient_attention i unpad_inputs w configu
+       modelu — inaczej StellaModel.forward() tworzy BlockDiagonalMask
+       (obiekt xformers) jako attention_bias jeszcze przed wywołaniem warstw,
+       co powoduje błąd TypeError przy próbie dodania go do Tensora.
+    3. Monkey-patchować get_extended_attention_mask na klasie modelu —
+       transformers ≥ 5.0 usunął parametr 'device', ale custom modeling.py
+       przekazuje go jako keyword argument (TypeError przy standardowej uwadze).
+    """
+    import inspect
+
+    count = 0
+    patched_classes: set = set()
+
+    for module in model.modules():
+        # Wyłącz flagę na warstwach uwagi
+        if getattr(module, "use_memory_efficient_attention", False):
+            module.use_memory_efficient_attention = False
+            count += 1
+        # Wyłącz flagi w configu modelu (kontrolują tworzenie attention_bias)
+        cfg = getattr(module, "config", None)
+        if cfg is not None:
+            if getattr(cfg, "use_memory_efficient_attention", False):
+                cfg.use_memory_efficient_attention = False
+            if getattr(cfg, "unpad_inputs", False):
+                cfg.unpad_inputs = False
+        # Monkey-patch get_extended_attention_mask: transformers ≥ 5.0 usunął
+        # parametr 'device', ale custom modeling.py go przekazuje — łatamy
+        # klasę modelu, żeby akceptowała i ignorowała ten argument.
+        cls = type(module)
+        if cls not in patched_classes and hasattr(cls, "get_extended_attention_mask"):
+            orig = cls.get_extended_attention_mask
+            if "device" not in inspect.signature(orig).parameters:
+
+                def _make_wrapper(original):
+                    def _patched(
+                        self, attention_mask, input_shape, device=None, **kwargs
+                    ):
+                        return original(self, attention_mask, input_shape, **kwargs)
+
+                    return _patched
+
+                cls.get_extended_attention_mask = _make_wrapper(orig)
+                patched_classes.add(cls)
+
+    return count
+
+
 def get_embedder():
     global _loaded_embedder
 
@@ -100,19 +158,20 @@ def get_embedder():
     from sentence_transformers import SentenceTransformer
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    st_kwargs: dict = {"trust_remote_code": True, "device": device}
-    if device == "cpu":
-        # Modele z custom kodem (np. stella-pl-retrieval-mini-8k) używają
-        # XFormers/Flash-Attention, które wymagają CUDA. Na CPU wymuszamy
-        # standardową uwagę PyTorch, żeby uniknąć błędu przy inicjalizacji.
-        st_kwargs["model_kwargs"] = {"attn_implementation": "eager"}
 
-    model = SentenceTransformer(EMBED_MODEL, **st_kwargs)
-    if device == "cuda":
+    model = SentenceTransformer(EMBED_MODEL, trust_remote_code=True, device=device)
+
+    if device == "cpu":
+        # Modele z custom kodem (np. stella-pl-retrieval-mini-8k) ignorują
+        # attn_implementation="eager" i bezpośrednio wywołują xformers, które
+        # wymaga CUDA. Wyłączamy xformers ręcznie po załadowaniu modelu.
+        _disable_xformers_cpu(model)
+    else:
         try:
             model = model.half()
         except Exception:
             pass
+
     _loaded_embedder = model
     return _loaded_embedder
 

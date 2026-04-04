@@ -21,6 +21,7 @@ Zmienne środowiskowe (z .env):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -75,13 +76,23 @@ async def lifespan(app: FastAPI):
     _device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info("Urządzenie: %s", _device)
 
-    _st_kwargs: dict = {"trust_remote_code": True, "device": _device}
-    if _device == "cpu":
-        # Modele z custom code (np. stella-pl-retrieval-mini-8k) używają XFormers,
-        # który wymaga CUDA. Na CPU wymuszamy standardową uwagę PyTorch.
-        _st_kwargs["model_kwargs"] = {"attn_implementation": "eager"}
+    app.state.embedder = SentenceTransformer(
+        EMBED_MODEL, trust_remote_code=True, device=_device
+    )
 
-    app.state.embedder = SentenceTransformer(EMBED_MODEL, **_st_kwargs)
+    if _device == "cpu":
+        # Modele z custom kodem (np. stella-pl-retrieval-mini-8k) ignorują
+        # attn_implementation="eager" i bezpośrednio wywołują xformers,
+        # który wymaga CUDA. Wyłączamy xformers ręcznie po załadowaniu.
+        from search import _disable_xformers_cpu
+
+        _disable_xformers_cpu(app.state.embedder)
+    else:
+        try:
+            app.state.embedder = app.state.embedder.half()
+        except Exception:
+            pass
+
     logger.info("Model załadowany (device=%s).", _device)
 
     from opensearchpy import OpenSearch
@@ -455,18 +466,44 @@ async def answer_stream(
     context = _build_context_from_docs(req.docs, req.query)
 
     async def event_generator():
+        # requests jest synchroniczne i blokowałoby pętlę asyncio, gdyby
+        # wywołać je bezpośrednio. Uruchamiamy generator w wątku tła przez
+        # run_in_executor i przekazujemy tokeny przez asyncio.Queue.
+        loop = asyncio.get_running_loop()
+        q: asyncio.Queue = asyncio.Queue()
+
+        def produce() -> None:
+            try:
+                for token in llm.stream(req.query, context, req.provider, req.model):
+                    asyncio.run_coroutine_threadsafe(
+                        q.put(("token", token)), loop
+                    ).result()
+            except Exception as exc:
+                asyncio.run_coroutine_threadsafe(
+                    q.put(("error", str(exc))), loop
+                ).result()
+            finally:
+                asyncio.run_coroutine_threadsafe(q.put(("done", None)), loop).result()
+
+        fut = loop.run_in_executor(None, produce)
         try:
-            for token in llm.stream(req.query, context, req.provider, req.model):
+            while True:
+                kind, value = await q.get()
+                if kind == "done":
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                    break
+                if kind == "error":
+                    payload = json.dumps(
+                        {"type": "error", "message": value}, ensure_ascii=False
+                    )
+                    yield f"data: {payload}\n\n"
+                    break
                 payload = json.dumps(
-                    {"type": "token", "content": token}, ensure_ascii=False
+                    {"type": "token", "content": value}, ensure_ascii=False
                 )
                 yield f"data: {payload}\n\n"
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
-        except Exception as e:
-            payload = json.dumps(
-                {"type": "error", "message": str(e)}, ensure_ascii=False
-            )
-            yield f"data: {payload}\n\n"
+        finally:
+            await fut
 
     return StreamingResponse(
         event_generator(),

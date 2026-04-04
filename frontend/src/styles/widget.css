@@ -137,11 +137,53 @@
 }
 
 .uodo-rag-widget .rag-answer-body {
-	font-size: 0.82rem;
-    padding: 1rem 1.2rem;
-    line-height: 1.7;
-    white-space: pre-wrap;
+    font-size: 0.82rem;
+    padding: 0.75rem 1.2rem;
+    line-height: 1.5;
     color: var(--uodo-dark-gray);
+}
+
+.uodo-rag-widget .rag-answer-body p {
+    margin: 0.3rem 0;
+}
+
+.uodo-rag-widget .rag-answer-body p:first-child {
+    margin-top: 0;
+}
+
+.uodo-rag-widget .rag-answer-body p:last-child {
+    margin-bottom: 0;
+}
+
+.uodo-rag-widget .rag-answer-body h1,
+.uodo-rag-widget .rag-answer-body h2,
+.uodo-rag-widget .rag-answer-body h3,
+.uodo-rag-widget .rag-answer-body h4 {
+    font-size: 0.88rem;
+    font-weight: 700;
+    margin: 0.5rem 0 0.2rem;
+    color: var(--uodo-blue-80);
+}
+
+.uodo-rag-widget .rag-answer-body ul,
+.uodo-rag-widget .rag-answer-body ol {
+    margin: 0.3rem 0;
+    padding-left: 1.4rem;
+}
+
+.uodo-rag-widget .rag-answer-body li {
+    margin: 0.15rem 0;
+}
+
+.uodo-rag-widget .rag-answer-body strong {
+    font-weight: 700;
+}
+
+.uodo-rag-widget .rag-answer-body code {
+    font-size: 0.78rem;
+    background: var(--uodo-blue-20);
+    padding: 0.05rem 0.3rem;
+    border-radius: 2px;
 }
 
 .uodo-rag-widget .rag-cursor {

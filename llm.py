@@ -133,7 +133,12 @@ def call_llm_stream(
     resp = _req.post(
         f"{OLLAMA_URL}/api/chat",
         headers=_ollama_headers(),
-        json={"model": model, "messages": messages, "stream": True},
+        json={
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            "options": {"num_predict": 1024},
+        },
         stream=True,
         timeout=120,
     )

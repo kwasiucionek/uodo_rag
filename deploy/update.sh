@@ -11,7 +11,7 @@ REMOTE_HOST="root@steve141.mikrus.xyz"
 REMOTE_PORT="10141"
 REMOTE_DIR="/home/kwasiucionek/uodo_rag"
 LOCAL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VITE_API_URL="http://pro01.mikr.us:44306"
+VITE_API_URL=""
 
 SSH="ssh -p $REMOTE_PORT $REMOTE_HOST"
 
@@ -26,7 +26,7 @@ echo "=== UODO RAG Update ==="
 if [ "$REBUILD_FRONTEND" = true ]; then
     echo "[1] Build frontendu..."
     cd "$LOCAL_DIR/frontend"
-    VITE_API_URL="$VITE_API_URL" npm run build
+    VITE_API_URL="" npm run build
 
     echo "  Kopiowanie dist na serwer..."
     scp -P "$REMOTE_PORT" -r "$LOCAL_DIR/frontend/dist/." \
