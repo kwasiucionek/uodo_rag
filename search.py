@@ -30,13 +30,13 @@ from config import (
     TOP_K,
 )
 from opensearch_client import (
+    RRF_PIPELINE_ID,
     build_filter_must,
     get_opensearch,
     hits_to_docs,
     hybrid_body,
     knn_body,
     rrf_available,
-    RRF_PIPELINE_ID,
 )
 
 # Prefiks instrukcji — wymagany przez stella-pl-retrieval-8k dla zapytań
@@ -48,8 +48,10 @@ _QUERY_PREFIX = (
 
 # ─────────────────────────── TTL CACHE ───────────────────────────
 
+
 def _ttl_cache(seconds: int = 3600):
     """Prosty dekorator cache z TTL — zastępuje @st.cache_data(ttl=...)."""
+
     def decorator(func):
         _store: dict = {}
 
@@ -66,6 +68,7 @@ def _ttl_cache(seconds: int = 3600):
 
         wrapper.cache_clear = lambda: _store.clear()  # type: ignore[attr-defined]
         return wrapper
+
     return decorator
 
 
@@ -74,7 +77,7 @@ def _ttl_cache(seconds: int = 3600):
 # Wstrzykiwany przez FastAPI lifespan (set_embedder).
 # Fallback: leniwe ładowanie przy pierwszym wywołaniu.
 _injected_embedder = None
-_loaded_embedder   = None
+_loaded_embedder = None
 
 
 def set_embedder(embedder) -> None:
@@ -96,8 +99,16 @@ def get_embedder():
     import torch
     from sentence_transformers import SentenceTransformer
 
-    model = SentenceTransformer(EMBED_MODEL, trust_remote_code=True)
-    if torch.cuda.is_available():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    st_kwargs: dict = {"trust_remote_code": True, "device": device}
+    if device == "cpu":
+        # Modele z custom kodem (np. stella-pl-retrieval-mini-8k) używają
+        # XFormers/Flash-Attention, które wymagają CUDA. Na CPU wymuszamy
+        # standardową uwagę PyTorch, żeby uniknąć błędu przy inicjalizacji.
+        st_kwargs["model_kwargs"] = {"attn_implementation": "eager"}
+
+    model = SentenceTransformer(EMBED_MODEL, **st_kwargs)
+    if device == "cuda":
         try:
             model = model.half()
         except Exception:
@@ -108,9 +119,9 @@ def get_embedder():
 
 def embed_query(text: str) -> list[float]:
     """Embedding zapytania — z prefiksem instrukcji."""
-    return get_embedder().encode(
-        _QUERY_PREFIX + text, normalize_embeddings=True
-    ).tolist()
+    return (
+        get_embedder().encode(_QUERY_PREFIX + text, normalize_embeddings=True).tolist()
+    )
 
 
 def embed_document(text: str) -> list[float]:
@@ -141,7 +152,7 @@ def get_graph() -> nx.DiGraph | None:
         return _graph_cache
 
     G = nx.DiGraph()
-    client       = get_opensearch()
+    client = get_opensearch()
     search_after = None
 
     while True:
@@ -149,14 +160,16 @@ def get_graph() -> nx.DiGraph | None:
             "query": {
                 "bool": {
                     "must": [
-                        {"term": {"doc_type":    "uodo_decision"}},
+                        {"term": {"doc_type": "uodo_decision"}},
                         {"term": {"chunk_index": 0}},
                     ]
                 }
             },
             "_source": [
-                "signature", "related_uodo_rulings",
-                "related_acts", "related_eu_acts",
+                "signature",
+                "related_uodo_rulings",
+                "related_acts",
+                "related_eu_acts",
             ],
             "size": 500,
             "sort": [{"_id": "asc"}],
@@ -195,12 +208,13 @@ def get_graph() -> nx.DiGraph | None:
     with open(GRAPH_PATH, "wb") as f:
         pickle.dump(G, f)
 
-    _graph_cache  = G
+    _graph_cache = G
     _graph_loaded = True
     return _graph_cache
 
 
 # ─────────────────────────── GRUPOWANIE CHUNKÓW ──────────────────
+
 
 def _group_decision_chunks(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
@@ -209,14 +223,14 @@ def _group_decision_chunks(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     Dokumenty nie będące decyzjami (u.o.d.o., RODO) przechodzą bez zmian.
     """
-    best:   dict[str, dict] = {}
-    others: list[dict]      = []
+    best: dict[str, dict] = {}
+    others: list[dict] = []
 
     for d in docs:
         if d.get("doc_type") != "uodo_decision":
             others.append(d)
             continue
-        sig   = d.get("signature", "")
+        sig = d.get("signature", "")
         score = d.get("_score", 0.0)
         if sig not in best or score > best[sig].get("_score", 0.0):
             best[sig] = d
@@ -226,17 +240,18 @@ def _group_decision_chunks(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 # ─────────────────────────── WYSZUKIWANIE ────────────────────────
 
+
 def semantic_search(
     query: str,
     top_k: int = TOP_K,
     filters: dict[str, Any] | None = None,
     score_threshold: float = 0.25,
 ) -> list[dict[str, Any]]:
-    client      = get_opensearch()
+    client = get_opensearch()
     filter_must = build_filter_must(filters)
-    body        = knn_body(embed_query(query), top_k, filter_must, score_threshold)
-    resp        = client.search(index=OPENSEARCH_INDEX, body=body)
-    docs        = hits_to_docs(resp["hits"]["hits"], source_label="semantic")
+    body = knn_body(embed_query(query), top_k, filter_must, score_threshold)
+    resp = client.search(index=OPENSEARCH_INDEX, body=body)
+    docs = hits_to_docs(resp["hits"]["hits"], source_label="semantic")
     return _group_decision_chunks(docs)
 
 
@@ -247,9 +262,9 @@ def hybrid_search_os(
     score_threshold: float = 0.25,
 ) -> list[dict[str, Any]]:
     """BM25 + kNN z RRF. Chunki tej samej decyzji grupowane po score."""
-    client      = get_opensearch()
+    client = get_opensearch()
     filter_must = build_filter_must(filters)
-    body        = hybrid_body(query, embed_query(query), top_k, filter_must, score_threshold)
+    body = hybrid_body(query, embed_query(query), top_k, filter_must, score_threshold)
     params: dict = {}
     if rrf_available():
         params["search_pipeline"] = RRF_PIPELINE_ID
@@ -263,16 +278,18 @@ def keyword_exact_search(
     filters: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Pobiera WSZYSTKIE dokumenty z danym tagiem."""
-    client       = get_opensearch()
-    filter_must  = build_filter_must({**(filters or {}), "keyword": keyword})
+    client = get_opensearch()
+    filter_must = build_filter_must({**(filters or {}), "keyword": keyword})
     raw_docs: list[dict] = []
     search_after = None
 
     while True:
         body: dict = {
-            "query": {"bool": {"must": filter_must}} if filter_must else {"match_all": {}},
-            "size":  200,
-            "sort":  [{"_id": "asc"}],
+            "query": {"bool": {"must": filter_must}}
+            if filter_must
+            else {"match_all": {}},
+            "size": 200,
+            "sort": [{"_id": "asc"}],
         }
         if search_after:
             body["search_after"] = search_after
@@ -283,8 +300,8 @@ def keyword_exact_search(
             break
 
         for hit in hits:
-            d            = hit["_source"].copy()
-            d["_score"]  = 1.0
+            d = hit["_source"].copy()
+            d["_score"] = 1.0
             d["_source"] = "keyword"
             raw_docs.append(d)
 
@@ -298,14 +315,14 @@ def keyword_exact_search(
 def fetch_by_signature(sig: str) -> dict[str, Any] | None:
     """Pobiera chunk 0 (sentencja) decyzji po sygnaturze."""
     client = get_opensearch()
-    resp   = client.search(
+    resp = client.search(
         index=OPENSEARCH_INDEX,
         body={
             "query": {
                 "bool": {
                     "must": [
-                        {"term": {"signature":   sig}},
-                        {"term": {"doc_type":    "uodo_decision"}},
+                        {"term": {"signature": sig}},
+                        {"term": {"doc_type": "uodo_decision"}},
                         {"term": {"chunk_index": 0}},
                     ]
                 }
@@ -316,13 +333,14 @@ def fetch_by_signature(sig: str) -> dict[str, Any] | None:
     hits = resp["hits"]["hits"]
     if not hits:
         return None
-    d            = hits[0]["_source"].copy()
+    d = hits[0]["_source"].copy()
     d["_source"] = "graph"
-    d["_score"]  = 0.0
+    d["_score"] = 0.0
     return d
 
 
 # ─────────────────────────── GRAF POWIĄZAŃ ───────────────────────
+
 
 def graph_expand(
     seed_sigs: list[str],
@@ -332,12 +350,12 @@ def graph_expand(
     if G is None:
         return []
 
-    visited  = set(seed_sigs)
-    result:  list[tuple[str, str, float]] = []
+    visited = set(seed_sigs)
+    result: list[tuple[str, str, float]] = []
     frontier = set(seed_sigs)
 
     for d in range(depth):
-        decay        = 0.65 ** d
+        decay = 0.65**d
         new_frontier: set[str] = set()
         for node in frontier:
             if node not in G:
@@ -365,16 +383,21 @@ def graph_expand(
 
 # ─────────────────────────── TAGI I TAKSONOMIA ───────────────────
 
+
 @_ttl_cache(seconds=3600)
 def get_all_tags() -> list[str]:
     client = get_opensearch()
-    resp   = client.search(
+    resp = client.search(
         index=OPENSEARCH_INDEX,
         body={
             "size": 0,
             "aggs": {
                 "all_keywords": {
-                    "terms": {"field": "keywords", "size": 20000, "order": {"_key": "asc"}}
+                    "terms": {
+                        "field": "keywords",
+                        "size": 20000,
+                        "order": {"_key": "asc"},
+                    }
                 }
             },
         },
@@ -385,20 +408,20 @@ def get_all_tags() -> list[str]:
 
 @_ttl_cache(seconds=3600)
 def get_taxonomy_options() -> dict[str, list[str]]:
-    result         = {k: list(v) for k, v in TAXONOMY_STATIC.items()}
+    result = {k: list(v) for k, v in TAXONOMY_STATIC.items()}
     dynamic_fields = [f for f, v in TAXONOMY_STATIC.items() if not v]
     if not dynamic_fields:
         return result
     try:
         client = get_opensearch()
-        resp   = client.search(
+        resp = client.search(
             index=OPENSEARCH_INDEX,
             body={
                 "size": 0,
                 "query": {
                     "bool": {
                         "must": [
-                            {"term": {"doc_type":    "uodo_decision"}},
+                            {"term": {"doc_type": "uodo_decision"}},
                             {"term": {"chunk_index": 0}},
                         ]
                     }
@@ -410,7 +433,7 @@ def get_taxonomy_options() -> dict[str, list[str]]:
             },
         )
         for field in dynamic_fields:
-            buckets       = resp.get("aggregations", {}).get(field, {}).get("buckets", [])
+            buckets = resp.get("aggregations", {}).get(field, {}).get("buckets", [])
             result[field] = sorted(b["key"] for b in buckets if b["key"])
     except Exception:
         pass
@@ -430,8 +453,8 @@ def extract_tags_with_llm(query: str, available_tags: list[str]) -> list[str]:
         f"Zapytanie: {query}\n\nDostępne tagi:\n{tags_list}"
     )
     try:
-        raw        = call_llm_json(prompt)
-        lines      = raw.get("tags", [])
+        raw = call_llm_json(prompt)
+        lines = raw.get("tags", [])
         tags_lower = {t.lower(): t for t in available_tags}
         existing, new_tags = [], []
         for item in lines:
@@ -455,13 +478,14 @@ def get_matched_tags(query: str) -> list[str]:
 
 # ─────────────────────────── DEDUPLIKACJA ────────────────────────
 
+
 def doc_key(d: dict[str, Any]) -> str:
     doc_id = d.get("doc_id", "")
     if doc_id:
         return doc_id
-    sig   = d.get("signature", "")
+    sig = d.get("signature", "")
     dtype = d.get("doc_type", "")
-    art   = d.get("article_num", "")
+    art = d.get("article_num", "")
     chunk = d.get("chunk_index", 0)
     if dtype == "uodo_decision":
         return f"{sig}:{chunk}"
@@ -489,12 +513,12 @@ def hybrid_search(
       - keyword_exact_search i hybrid_search_os zwracają już zgrupowane wyniki
         (jedna decyzja = jeden doc z najlepszą sekcją)
     """
-    sem_query    = search_query or query
+    sem_query = search_query or query
     matched_tags = get_matched_tags(query)
 
     seen_keys: set[str] = set()
     decisions: list[dict] = []
-    act_docs:  list[dict] = []
+    act_docs: list[dict] = []
     gdpr_docs: list[dict] = []
 
     def _add(bucket: list, doc: dict) -> bool:
@@ -519,14 +543,15 @@ def hybrid_search(
 
     # 1b. Frazy 2-wyrazowe → exact tag match (BEZ LLM)
     words = [
-        w.lower() for w in re.split(r"\W+", query)
+        w.lower()
+        for w in re.split(r"\W+", query)
         if w.lower() not in QUERY_STOPWORDS and len(w) > 2
     ]
-    two_word_phrases = list(dict.fromkeys(
-        f"{words[i]} {words[i + 1]}" for i in range(len(words) - 1)
-    ))
+    two_word_phrases = list(
+        dict.fromkeys(f"{words[i]} {words[i + 1]}" for i in range(len(words) - 1))
+    )
     all_tags_lower = {t.lower(): t for t in get_all_tags()}
-    direct_hits    = [all_tags_lower[p] for p in two_word_phrases if p in all_tags_lower]
+    direct_hits = [all_tags_lower[p] for p in two_word_phrases if p in all_tags_lower]
 
     for tag in direct_hits:
         results = keyword_exact_search(
@@ -609,7 +634,7 @@ def hybrid_search(
     if not use_graph or not decisions:
         return merged, matched_tags
 
-    seed_sigs  = [d.get("signature", "") for d in decisions if d.get("signature")]
+    seed_sigs = [d.get("signature", "") for d in decisions if d.get("signature")]
     seen_graph = {d.get("signature", "") for d in decisions}
 
     for sig, rel_type, score in graph_expand(seed_sigs):
@@ -617,7 +642,7 @@ def hybrid_search(
             continue
         doc = fetch_by_signature(sig)
         if doc:
-            doc["_score"]          = score
+            doc["_score"] = score
             doc["_graph_relation"] = rel_type
             decisions.append(doc)
             seen_graph.add(sig)
@@ -626,6 +651,7 @@ def hybrid_search(
 
 
 # ─────────────────────────── STATYSTYKI ──────────────────────────
+
 
 @_ttl_cache(seconds=3600)
 def get_collection_stats() -> dict[str, Any]:
@@ -638,7 +664,7 @@ def get_collection_stats() -> dict[str, Any]:
                 "query": {
                     "bool": {
                         "must": [
-                            {"term": {"doc_type":    "uodo_decision"}},
+                            {"term": {"doc_type": "uodo_decision"}},
                             {"term": {"chunk_index": 0}},
                         ]
                     }
@@ -654,13 +680,15 @@ def get_collection_stats() -> dict[str, Any]:
         )
         return r["count"]
 
-    decisions  = _count_decisions()
+    decisions = _count_decisions()
     act_chunks = _count("legal_act_article")
-    G          = get_graph()
+    G = get_graph()
     graph_stats: dict[str, Any] = {}
 
     if G:
-        uodo       = [n for n, d in G.nodes(data=True) if d.get("doc_type") == "uodo_decision"]
+        uodo = [
+            n for n, d in G.nodes(data=True) if d.get("doc_type") == "uodo_decision"
+        ]
         most_cited = sorted(
             [(n, G.in_degree(n)) for n in uodo if G.in_degree(n) > 0],
             key=lambda x: -x[1],

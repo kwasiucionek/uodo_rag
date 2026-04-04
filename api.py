@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
 OPENSEARCH_INDEX = os.getenv("OPENSEARCH_INDEX", "uodo_decisions")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "sdadas/stella-pl-retrieval-8k")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "sdadas/stella-pl-retrieval-mini-8k")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_CLOUD_API_KEY = os.getenv("OLLAMA_CLOUD_API_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
@@ -69,10 +69,20 @@ async def lifespan(app: FastAPI):
     Zastępuje @st.cache_resource z wersji Streamlit.
     """
     logger.info("Ładowanie modelu embeddingowego: %s", EMBED_MODEL)
+    import torch
     from sentence_transformers import SentenceTransformer
 
-    app.state.embedder = SentenceTransformer(EMBED_MODEL, trust_remote_code=True)
-    logger.info("Model załadowany.")
+    _device = "cuda" if torch.cuda.is_available() else "cpu"
+    logger.info("Urządzenie: %s", _device)
+
+    _st_kwargs: dict = {"trust_remote_code": True, "device": _device}
+    if _device == "cpu":
+        # Modele z custom code (np. stella-pl-retrieval-mini-8k) używają XFormers,
+        # który wymaga CUDA. Na CPU wymuszamy standardową uwagę PyTorch.
+        _st_kwargs["model_kwargs"] = {"attn_implementation": "eager"}
+
+    app.state.embedder = SentenceTransformer(EMBED_MODEL, **_st_kwargs)
+    logger.info("Model załadowany (device=%s).", _device)
 
     from opensearchpy import OpenSearch
 

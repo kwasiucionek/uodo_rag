@@ -44,7 +44,7 @@ except ImportError:
 
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
 OPENSEARCH_INDEX = os.getenv("OPENSEARCH_INDEX", "uodo_decisions")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "sdadas/stella-pl-retrieval-8k")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "sdadas/stella-pl-retrieval-mini-8k")
 EMBED_DIM = 1024
 BATCH_SIZE = 32
 EMBED_MAX_CHARS = 5500
@@ -74,10 +74,25 @@ def ensure_index(client, index: str) -> None:
 
 
 def load_embedder(model_name: str):
+    import torch
     from sentence_transformers import SentenceTransformer
 
-    print(f"Ładowanie modelu: {model_name}")
-    return SentenceTransformer(model_name, trust_remote_code=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Ładowanie modelu: {model_name} (device={device})")
+
+    # Na CPU modele z custom kodem (np. stella_en_400M_v5 / mini) używają
+    # XFormers/Flash-Attention, które wymagają CUDA. Wymuszamy standardową
+    # implementację uwagi PyTorch przez attn_implementation="eager".
+    model_kwargs: dict = {}
+    if device == "cpu":
+        model_kwargs["attn_implementation"] = "eager"
+
+    return SentenceTransformer(
+        model_name,
+        trust_remote_code=True,
+        device=device,
+        model_kwargs=model_kwargs or None,
+    )
 
 
 def embed_batch(

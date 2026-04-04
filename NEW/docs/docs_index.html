@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UODO RAG API — Dokumentacja</title>
+  <style>
+    :root {
+      --blue-10:   #f5f8f8;
+      --blue-20:   #e8f1fd;
+      --blue-30:   #dde3ee;
+      --blue-50:   #275faa;
+      --blue-60:   #0e4591;
+      --blue-80:   #092e60;
+      --dark-gray: #3f444f;
+      --red:       #cd071e;
+      --white:     #fff;
+      --radius:    2px;
+      --font:      'Red Hat Display', system-ui, sans-serif;
+      --mono:      'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+      --sidebar-w: 260px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      color: var(--dark-gray);
+      background: var(--white);
+      line-height: 1.6;
+    }
+
+    /* ── Layout ── */
+    .layout {
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      background: var(--blue-80);
+      color: var(--white);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 0 0 2rem 0;
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1.5rem 1.25rem 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      margin-bottom: 0.5rem;
+    }
+
+    .sidebar-logo-badge {
+      background: var(--red);
+      color: var(--white);
+      font-size: 0.65rem;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: var(--radius);
+      letter-spacing: 0.05em;
+    }
+
+    .sidebar-logo-text {
+      font-size: 0.9rem;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .sidebar-logo-sub {
+      font-size: 0.7rem;
+      opacity: 0.6;
+      font-weight: 400;
+    }
+
+    .sidebar-section-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: rgba(255,255,255,0.4);
+      padding: 1rem 1.25rem 0.25rem;
+    }
+
+    .sidebar-link {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.4rem 1.25rem;
+      text-decoration: none;
+      font-size: 0.82rem;
+      color: rgba(255,255,255,0.75);
+      transition: background 150ms, color 150ms;
+      border-left: 3px solid transparent;
+    }
+
+    .sidebar-link:hover {
+      background: rgba(255,255,255,0.07);
+      color: var(--white);
+    }
+
+    .sidebar-link.active {
+      border-left-color: var(--white);
+      color: var(--white);
+      background: rgba(255,255,255,0.1);
+      font-weight: 600;
+    }
+
+    .method-badge {
+      display: inline-block;
+      font-size: 0.6rem;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: 2px;
+      font-family: var(--mono);
+      flex-shrink: 0;
+      letter-spacing: 0.03em;
+    }
+
+    .badge-get  { background: #065f46; color: #d1fae5; }
+    .badge-post { background: #1e40af; color: #dbeafe; }
+
+    /* ── Treść ── */
+    .content {
+      padding: 3rem 4rem;
+      max-width: 900px;
+    }
+
+    /* Hero */
+    .hero {
+      margin-bottom: 3rem;
+      padding-bottom: 2rem;
+      border-bottom: 2px solid var(--blue-30);
+    }
+
+    .hero h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--blue-80);
+      margin-bottom: 0.5rem;
+    }
+
+    .hero-meta {
+      display: flex;
+      gap: 1rem;
+      margin: 1rem 0;
+      flex-wrap: wrap;
+    }
+
+    .hero-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.82rem;
+      color: #6b7280;
+      background: var(--blue-10);
+      border: 1px solid var(--blue-30);
+      padding: 3px 10px;
+      border-radius: 10px;
+    }
+
+    .hero p {
+      color: var(--dark-gray);
+      font-size: 0.95rem;
+      max-width: 600px;
+      line-height: 1.7;
+    }
+
+    /* Sekcje */
+    .section {
+      margin-bottom: 3.5rem;
+      scroll-margin-top: 1.5rem;
+    }
+
+    .section-title {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--blue-80);
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--blue-30);
+    }
+
+    /* Endpoint card */
+    .endpoint {
+      border: 1px solid var(--blue-30);
+      border-radius: var(--radius);
+      margin-bottom: 1.5rem;
+      overflow: hidden;
+      scroll-margin-top: 1.5rem;
+    }
+
+    .endpoint-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 1.25rem;
+      background: var(--blue-10);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .endpoint-header:hover { background: var(--blue-20); }
+
+    .endpoint-path {
+      font-family: var(--mono);
+      font-size: 0.88rem;
+      color: var(--blue-60);
+      font-weight: 600;
+    }
+
+    .endpoint-summary {
+      font-size: 0.82rem;
+      color: #6b7280;
+      margin-left: auto;
+    }
+
+    .endpoint-chevron {
+      font-size: 0.65rem;
+      color: var(--blue-60);
+      transition: transform 200ms;
+    }
+
+    .endpoint.open .endpoint-chevron { transform: rotate(180deg); }
+
+    .endpoint-body {
+      display: none;
+      padding: 1.25rem;
+      border-top: 1px solid var(--blue-30);
+    }
+
+    .endpoint.open .endpoint-body { display: block; }
+
+    .endpoint-description {
+      font-size: 0.88rem;
+      margin-bottom: 1rem;
+      line-height: 1.65;
+      color: var(--dark-gray);
+    }
+
+    /* Params table */
+    .params-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #9ca3af;
+      margin: 1rem 0 0.4rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      margin-bottom: 0.5rem;
+    }
+
+    th {
+      background: var(--blue-10);
+      padding: 0.4rem 0.75rem;
+      text-align: left;
+      font-weight: 700;
+      color: var(--blue-80);
+      border: 1px solid var(--blue-30);
+    }
+
+    td {
+      padding: 0.4rem 0.75rem;
+      border: 1px solid var(--blue-30);
+      vertical-align: top;
+    }
+
+    td code {
+      background: var(--blue-10);
+      padding: 1px 5px;
+      border-radius: 2px;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--blue-60);
+    }
+
+    .required {
+      color: var(--red);
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+
+    /* Code blocks */
+    pre {
+      background: #0f1117;
+      color: #e2e8f0;
+      padding: 1rem 1.25rem;
+      border-radius: var(--radius);
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.7;
+      margin: 0.5rem 0;
+    }
+
+    .code-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #9ca3af;
+      margin-top: 0.75rem;
+      margin-bottom: 0.25rem;
+    }
+
+    /* Syntax highlight (manual) */
+    .kw  { color: #93c5fd; }
+    .str { color: #86efac; }
+    .num { color: #fbbf24; }
+    .cm  { color: #6b7280; font-style: italic; }
+    .key { color: #f9a8d4; }
+
+    /* Callout */
+    .callout {
+      border-left: 4px solid var(--blue-60);
+      background: var(--blue-10);
+      padding: 0.75rem 1rem;
+      font-size: 0.85rem;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      margin: 0.75rem 0;
+    }
+
+    .callout-warn {
+      border-left-color: #d97706;
+      background: #fffbeb;
+    }
+
+    /* Base URL box */
+    .base-url-box {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: var(--blue-10);
+      border: 1px solid var(--blue-30);
+      border-radius: var(--radius);
+      padding: 0.6rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.88rem;
+      margin: 1rem 0;
+    }
+
+    .base-url-label {
+      font-family: var(--font);
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #9ca3af;
+      flex-shrink: 0;
+    }
+
+    .base-url-value { color: var(--blue-60); }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; }
+      .content { padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ── Sidebar ── -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <div>
+        <div class="sidebar-logo-text">UODO RAG API</div>
+        <div class="sidebar-logo-sub">Dokumentacja dla developerów</div>
+      </div>
+      <span class="sidebar-logo-badge">v2.0</span>
+    </div>
+
+    <div class="sidebar-section-label">Ogólne</div>
+    <a href="#intro"   class="sidebar-link active">Wprowadzenie</a>
+    <a href="#quickstart" class="sidebar-link">Szybki start</a>
+    <a href="#widget"  class="sidebar-link">Widget frontend</a>
+
+    <div class="sidebar-section-label">Wyszukiwanie</div>
+    <a href="#ep-search"   class="sidebar-link"><span class="method-badge badge-post">POST</span>/api/search</a>
+    <a href="#ep-stream"   class="sidebar-link"><span class="method-badge badge-post">POST</span>/api/answer/stream</a>
+    <a href="#ep-decompose" class="sidebar-link"><span class="method-badge badge-post">POST</span>/api/decompose</a>
+    <a href="#ep-suggest"  class="sidebar-link"><span class="method-badge badge-get">GET</span>/api/suggest</a>
+
+    <div class="sidebar-section-label">Dokumenty</div>
+    <a href="#ep-document"  class="sidebar-link"><span class="method-badge badge-get">GET</span>/api/document</a>
+    <a href="#ep-signature" class="sidebar-link"><span class="method-badge badge-get">GET</span>/api/signature/{sig}</a>
+
+    <div class="sidebar-section-label">Metadane</div>
+    <a href="#ep-tags"     class="sidebar-link"><span class="method-badge badge-get">GET</span>/api/tags</a>
+    <a href="#ep-taxonomy" class="sidebar-link"><span class="method-badge badge-get">GET</span>/api/taxonomy</a>
+    <a href="#ep-stats"    class="sidebar-link"><span class="method-badge badge-get">GET</span>/api/stats</a>
+
+    <div class="sidebar-section-label">Admin</div>
+    <a href="#ep-update"        class="sidebar-link"><span class="method-badge badge-post">POST</span>/api/admin/update</a>
+    <a href="#ep-update-status" class="sidebar-link"><span class="method-badge badge-get">GET</span>/api/admin/update/status</a>
+    <a href="#ep-health"        class="sidebar-link"><span class="method-badge badge-get">GET</span>/health</a>
+  </nav>
+
+  <!-- ── Treść ── -->
+  <main class="content">
+
+    <!-- HERO -->
+    <div class="hero" id="intro">
+      <h1>UODO RAG API</h1>
+      <div class="hero-meta">
+        <span class="hero-meta-item">⚡ FastAPI 0.115</span>
+        <span class="hero-meta-item">🔍 OpenSearch 2.18</span>
+        <span class="hero-meta-item">🤖 Ollama / Groq</span>
+        <span class="hero-meta-item">📄 ~560 decyzji UODO</span>
+      </div>
+      <p>
+        REST API systemu RAG (Retrieval-Augmented Generation) do przeszukiwania
+        decyzji Prezesa UODO, ustawy o ochronie danych osobowych oraz RODO.
+        Łączy wyszukiwanie hybrydowe (BM25 + kNN) z gramatycznym grafem cytowań
+        i streamingiem odpowiedzi LLM.
+      </p>
+    </div>
+
+    <!-- QUICKSTART -->
+    <div class="section" id="quickstart">
+      <h2 class="section-title">Szybki start</h2>
+
+      <div class="base-url-box">
+        <span class="base-url-label">Base URL</span>
+        <span class="base-url-value">http://localhost:8000</span>
+      </div>
+
+      <p style="font-size:.88rem;margin-bottom:.75rem">Minimalne zapytanie wyszukujące:</p>
+      <pre><span class="cm"># Wyszukiwanie decyzji o danych genetycznych</span>
+curl -s -X POST http://localhost:8000/api/search \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">'{"query": "dane genetyczne"}'</span> | python3 -m json.tool</pre>
+
+      <p style="font-size:.88rem;margin:1rem 0 .5rem">Streaming odpowiedzi AI (SSE):</p>
+      <pre><span class="cm"># Najpierw pobierz docs przez /api/search, potem wyślij do stream</span>
+curl -N -X POST http://localhost:8000/api/answer/stream \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">'{"query":"dane genetyczne","docs":[...],"provider":"Ollama","model":"mistral-large-3:675b-cloud"}'</span></pre>
+
+      <div class="callout">
+        Swagger UI dostępny pod <code>/docs</code> — pozwala testować wszystkie endpointy interaktywnie.
+      </div>
+    </div>
+
+    <!-- WIDGET -->
+    <div class="section" id="widget">
+      <h2 class="section-title">Widget frontend</h2>
+      <p style="font-size:.88rem;margin-bottom:.75rem">
+        Gotowy widget React do osadzenia na dowolnej stronie:
+      </p>
+
+      <div class="code-label">Metoda 1 — Web Component (automatyczna inicjalizacja)</div>
+      <pre><span class="kw">&lt;script</span> <span class="key">src</span>=<span class="str">"https://rag.uodo.gov.pl/widget.iife.js"</span><span class="kw">&gt;&lt;/script&gt;</span>
+<span class="kw">&lt;uodo-rag-widget</span> <span class="key">api-url</span>=<span class="str">"https://rag.uodo.gov.pl"</span><span class="kw">&gt;&lt;/uodo-rag-widget&gt;</span></pre>
+
+      <div class="code-label">Metoda 2 — ręczna inicjalizacja</div>
+      <pre><span class="kw">&lt;div</span> <span class="key">id</span>=<span class="str">"uodo-rag"</span><span class="kw">&gt;&lt;/div&gt;</span>
+<span class="kw">&lt;script</span> <span class="key">src</span>=<span class="str">"widget.iife.js"</span><span class="kw">&gt;&lt;/script&gt;</span>
+<span class="kw">&lt;script&gt;</span>
+  UodoRag.mount(<span class="str">'#uodo-rag'</span>, {
+    useLLM:          <span class="num">true</span>,
+    onDocumentClick: (doc) => console.log(doc.signature),
+  });
+<span class="kw">&lt;/script&gt;</span></pre>
+    </div>
+
+    <!-- ─── ENDPOINTY ─── -->
+
+    <!-- SEARCH -->
+    <div class="section" id="search-section">
+      <h2 class="section-title">Wyszukiwanie</h2>
+
+      <div class="endpoint open" id="ep-search">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-post">POST</span>
+          <span class="endpoint-path">/api/search</span>
+          <span class="endpoint-summary">Wyszukiwanie hybrydowe</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-description">
+            Wyszukiwanie hybrydowe łączące BM25 (dopasowanie słów kluczowych),
+            kNN (wyszukiwanie semantyczne) i graf cytowań. Decyzje UODO,
+            artykuły u.o.d.o. i RODO w jednym wywołaniu.
+          </p>
+
+          <div class="params-title">Request Body</div>
+          <table>
+            <tr><th>Pole</th><th>Typ</th><th>Opis</th></tr>
+            <tr><td><code>query</code> <span class="required">*</span></td><td><code>string</code></td><td>Zapytanie użytkownika</td></tr>
+            <tr><td><code>search_query</code></td><td><code>string</code></td><td>Wzbogacone zapytanie (z /api/decompose). Jeśli podane, używane do embeddingów zamiast query.</td></tr>
+            <tr><td><code>filters.status</code></td><td><code>string</code></td><td><code>"prawomocna"</code> | <code>"nieprawomocna"</code></td></tr>
+            <tr><td><code>filters.year_from</code></td><td><code>integer</code></td><td>Rok wydania od (np. <code>2022</code>)</td></tr>
+            <tr><td><code>filters.year_to</code></td><td><code>integer</code></td><td>Rok wydania do</td></tr>
+            <tr><td><code>filters.term_sector</code></td><td><code>string[]</code></td><td>Sektor: <code>["Zdrowie", "Zatrudnienie"]</code></td></tr>
+            <tr><td><code>filters.term_decision_type</code></td><td><code>string[]</code></td><td>Rodzaj decyzji: <code>["nakaz", "upomnienie"]</code></td></tr>
+            <tr><td><code>use_graph</code></td><td><code>boolean</code></td><td>Rozszerz wyniki o powiązane decyzje z grafu cytowań (domyślnie: <code>true</code>)</td></tr>
+            <tr><td><code>top_k</code></td><td><code>integer</code></td><td>Maksymalna liczba wyników (1–50, domyślnie: <code>8</code>)</td></tr>
+          </table>
+
+          <div class="code-label">Przykład</div>
+          <pre>{
+  <span class="key">"query"</span>:   <span class="str">"dane genetyczne monitoring pracowników"</span>,
+  <span class="key">"filters"</span>: { <span class="key">"term_sector"</span>: [<span class="str">"Zatrudnienie"</span>], <span class="key">"year_from"</span>: <span class="num">2022</span> },
+  <span class="key">"top_k"</span>:   <span class="num">20</span>
+}</pre>
+
+          <div class="params-title">Response</div>
+          <table>
+            <tr><th>Pole</th><th>Opis</th></tr>
+            <tr><td><code>docs[]</code></td><td>Lista dokumentów (decyzje, artykuły u.o.d.o., RODO)</td></tr>
+            <tr><td><code>docs[].doc_type</code></td><td><code>uodo_decision</code> | <code>legal_act_article</code> | <code>gdpr_article</code> | <code>gdpr_recital</code></td></tr>
+            <tr><td><code>docs[].signature</code></td><td>Sygnatura decyzji (np. <code>DKN.5131.5.2024</code>)</td></tr>
+            <tr><td><code>docs[].section_title</code></td><td>Tytuł najlepiej pasującej sekcji</td></tr>
+            <tr><td><code>docs[].score</code></td><td>Wynik dopasowania</td></tr>
+            <tr><td><code>docs[].graph_relation</code></td><td>Relacja z grafu cytowań (jeśli dotyczy)</td></tr>
+            <tr><td><code>tags[]</code></td><td>Tagi LLM dopasowane do zapytania</td></tr>
+            <tr><td><code>search_time</code></td><td>Czas wyszukiwania w sekundach</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- STREAM -->
+      <div class="endpoint" id="ep-stream">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-post">POST</span>
+          <span class="endpoint-path">/api/answer/stream</span>
+          <span class="endpoint-summary">Streaming odpowiedzi LLM (SSE)</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-description">
+            Generuje odpowiedź AI na podstawie zapytania i dokumentów z /api/search.
+            Odpowiedź streamowana przez Server-Sent Events — kolejne tokeny przychodzą
+            na bieżąco bez czekania na całość.
+          </p>
+
+          <div class="params-title">Request Body</div>
+          <table>
+            <tr><th>Pole</th><th>Typ</th><th>Opis</th></tr>
+            <tr><td><code>query</code> <span class="required">*</span></td><td><code>string</code></td><td>Oryginalne zapytanie</td></tr>
+            <tr><td><code>docs</code> <span class="required">*</span></td><td><code>Document[]</code></td><td>Dokumenty z /api/search (zwykle pierwsze 8)</td></tr>
+            <tr><td><code>provider</code></td><td><code>string</code></td><td><code>"Ollama"</code> | <code>"Groq"</code></td></tr>
+            <tr><td><code>model</code></td><td><code>string</code></td><td>Nazwa modelu (np. <code>"mistral-large-3:675b-cloud"</code>)</td></tr>
+          </table>
+
+          <div class="code-label">Format zdarzeń SSE</div>
+          <pre><span class="cm"># Token odpowiedzi</span>
+data: {<span class="key">"type"</span>: <span class="str">"token"</span>, <span class="key">"content"</span>: <span class="str">"Na podstawie"</span>}
+
+<span class="cm"># Koniec streamu</span>
+data: {<span class="key">"type"</span>: <span class="str">"done"</span>}
+
+<span class="cm"># Błąd</span>
+data: {<span class="key">"type"</span>: <span class="str">"error"</span>, <span class="key">"message"</span>: <span class="str">"..."</span>}</pre>
+
+          <div class="code-label">Przykład JavaScript</div>
+          <pre><span class="kw">const</span> resp = <span class="kw">await</span> fetch(<span class="str">'/api/answer/stream'</span>, {
+  method: <span class="str">'POST'</span>,
+  headers: { <span class="str">'Content-Type'</span>: <span class="str">'application/json'</span> },
+  body: JSON.stringify({ query, docs, provider: <span class="str">'Ollama'</span>, model }),
+});
+<span class="kw">const</span> reader = resp.body.getReader();
+<span class="kw">const</span> decoder = <span class="kw">new</span> TextDecoder();
+
+<span class="kw">while</span> (<span class="num">true</span>) {
+  <span class="kw">const</span> { done, value } = <span class="kw">await</span> reader.read();
+  <span class="kw">if</span> (done) <span class="kw">break</span>;
+  <span class="cm">// parsuj zdarzenia SSE z decoder.decode(value)</span>
+}</pre>
+
+          <div class="callout callout-warn">
+            Nginx wymaga <code>proxy_buffering off</code> dla poprawnego działania SSE.
+          </div>
+        </div>
+      </div>
+
+      <!-- DECOMPOSE -->
+      <div class="endpoint" id="ep-decompose">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-post">POST</span>
+          <span class="endpoint-path">/api/decompose</span>
+          <span class="endpoint-summary">Dekompozycja zapytania (Reasoning Step)</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-description">
+            LLM analizuje zapytanie użytkownika i generuje ustrukturyzowane parametry
+            wyszukiwania: słowa kluczowe, wskazówki artykułów, zakres lat.
+            Wywołaj przed /api/search dla złożonych zapytań (powyżej 3 słów).
+          </p>
+          <div class="params-title">Request Body</div>
+          <table>
+            <tr><th>Pole</th><th>Opis</th></tr>
+            <tr><td><code>query</code> <span class="required">*</span></td><td>Zapytanie do dekompozycji</td></tr>
+            <tr><td><code>provider</code></td><td>Provider LLM</td></tr>
+            <tr><td><code>model</code></td><td>Model LLM</td></tr>
+          </table>
+          <div class="params-title">Response</div>
+          <table>
+            <tr><th>Pole</th><th>Opis</th></tr>
+            <tr><td><code>enriched_query</code></td><td>Rozszerzone zapytanie — użyj jako <code>search_query</code> w /api/search</td></tr>
+            <tr><td><code>search_keywords[]</code></td><td>Synonimy i pojęcia prawne (max 5)</td></tr>
+            <tr><td><code>gdpr_articles_hint[]</code></td><td>Sugerowane artykuły RODO</td></tr>
+            <tr><td><code>year_from_hint</code></td><td>Sugerowany rok od (lub null)</td></tr>
+            <tr><td><code>reasoning</code></td><td>Uzasadnienie dekompozycji</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- SUGGEST -->
+      <div class="endpoint" id="ep-suggest">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-get">GET</span>
+          <span class="endpoint-path">/api/suggest</span>
+          <span class="endpoint-summary">Autouzupełnianie</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-description">
+            Zwraca tagi i sygnatury pasujące do prefiksu zapytania.
+            Minimum 2 znaki. Używane przez pole wyszukiwania w widgecie.
+          </p>
+          <div class="params-title">Query Parameters</div>
+          <table>
+            <tr><th>Parametr</th><th>Opis</th></tr>
+            <tr><td><code>q</code> <span class="required">*</span></td><td>Prefiks (min. 2 znaki)</td></tr>
+            <tr><td><code>limit</code></td><td>Maksymalna liczba wyników (domyślnie: <code>8</code>)</td></tr>
+          </table>
+          <div class="code-label">Przykład</div>
+          <pre>GET /api/suggest?q=dane+gene&limit=6
+
+{
+  <span class="key">"tags"</span>:       [<span class="str">"dane genetyczne"</span>, <span class="str">"dane biometryczne"</span>],
+  <span class="key">"signatures"</span>: [<span class="str">"DKN.5131.32.2023"</span>, <span class="str">"DKN.5131.9.2024"</span>]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- DOKUMENTY -->
+    <div class="section" id="docs-section">
+      <h2 class="section-title">Dokumenty</h2>
+
+      <div class="endpoint" id="ep-document">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-get">GET</span>
+          <span class="endpoint-path">/api/document</span>
+          <span class="endpoint-summary">Pełna treść decyzji (wszystkie sekcje)</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-description">
+            Pobiera pełną decyzję UODO — wszystkie sekcje w kolejności (Sentencja,
+            Stan faktyczny, sekcje uzasadnienia) wraz z referencjami (URN) do
+            aktów prawnych, orzeczeń sądów i innych decyzji UODO.
+          </p>
+          <div class="params-title">Query Parameters</div>
+          <table>
+            <tr><th>Parametr</th><th>Opis</th></tr>
+            <tr><td><code>signature</code> <span class="required">*</span></td><td>Sygnatura decyzji, np. <code>DKN.5131.5.2024</code></td></tr>
+          </table>
+          <div class="params-title">Response (wybrane pola)</div>
+          <table>
+            <tr><th>Pole</th><th>Opis</th></tr>
+            <tr><td><code>sections[]</code></td><td>Lista sekcji: <code>{section_title, section_id, chunk_index, content_text}</code></td></tr>
+            <tr><td><code>refs_full[]</code></td><td>Referencje z URN: <code>{urn, signature, category, display}</code></td></tr>
+            <tr><td><code>related_acts[]</code></td><td>Akty prawne PL (sygnatury)</td></tr>
+            <tr><td><code>related_uodo_rulings[]</code></td><td>Cytowane decyzje UODO</td></tr>
+          </table>
+          <div class="code-label">Przykład</div>
+          <pre>GET /api/document?signature=DKN.5131.5.2024</pre>
+        </div>
+      </div>
+
+      <div class="endpoint" id="ep-signature">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-get">GET</span>
+          <span class="endpoint-path">/api/signature/{signature}</span>
+          <span class="endpoint-summary">Metadane decyzji (chunk 0)</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-description">
+            Pobiera metadane i sentencję decyzji UODO (chunk 0).
+            Szybsze niż /api/document gdy potrzebne są tylko metadane.
+          </p>
+          <div class="callout">
+            Uwaga: sygnatura w ścieżce URL musi być zakodowana —
+            <code>DKN.5131.5.2024</code> → <code>DKN.5131.5.2024</code>
+            (kropki nie wymagają kodowania).
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- METADANE -->
+    <div class="section" id="meta-section">
+      <h2 class="section-title">Metadane</h2>
+
+      <div class="endpoint" id="ep-tags">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-get">GET</span>
+          <span class="endpoint-path">/api/tags</span>
+          <span class="endpoint-summary">Wszystkie tagi (autocomplete filtrów)</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-description">
+            Zwraca wszystkie unikalne tagi z bazy decyzji, posortowane alfabetycznie.
+            Cache TTL: 1 godzina.
+          </p>
+          <pre>GET /api/tags
+→ [<span class="str">"administracyjna kara pieniężna"</span>, <span class="str">"dane biometryczne"</span>, ...]</pre>
+        </div>
+      </div>
+
+      <div class="endpoint" id="ep-taxonomy">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-get">GET</span>
+          <span class="endpoint-path">/api/taxonomy</span>
+          <span class="endpoint-summary">Opcje filtrów taksonomii</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-description">
+            Zwraca dostępne wartości dla każdej kategorii filtrów.
+            Używane przez sidebar filtrów w widgecie.
+          </p>
+          <pre>GET /api/taxonomy
+→ {
+  <span class="key">"term_decision_type"</span>:      [<span class="str">"nakaz"</span>, <span class="str">"upomnienie"</span>, ...],
+  <span class="key">"term_sector"</span>:             [<span class="str">"Zdrowie"</span>, <span class="str">"Zatrudnienie"</span>, ...],
+  <span class="key">"term_corrective_measure"</span>: [...],
+  <span class="key">"term_violation_type"</span>:     [...]
+}</pre>
+        </div>
+      </div>
+
+      <div class="endpoint" id="ep-stats">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-get">GET</span>
+          <span class="endpoint-path">/api/stats</span>
+          <span class="endpoint-summary">Statystyki kolekcji</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <pre>GET /api/stats
+→ {
+  <span class="key">"decisions"</span>:   <span class="num">564</span>,
+  <span class="key">"act_chunks"</span>:  <span class="num">108</span>,
+  <span class="key">"edges"</span>:       <span class="num">3241</span>,
+  <span class="key">"most_cited"</span>:  [[<span class="str">"DKN.5130.2052.2021"</span>, <span class="num">12</span>], ...]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADMIN -->
+    <div class="section" id="admin-section">
+      <h2 class="section-title">Admin</h2>
+
+      <div class="endpoint" id="ep-update">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-post">POST</span>
+          <span class="endpoint-path">/api/admin/update</span>
+          <span class="endpoint-summary">Delta-aktualizacja decyzji</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-description">
+            Wyzwala pobieranie i indeksowanie nowych decyzji UODO.
+            Automatycznie wykrywa ostatnią zaindeksowaną datę i pobiera
+            tylko nowsze decyzje (delta update).
+          </p>
+          <div class="callout callout-warn">
+            Endpoint wymaga parametru <code>?admin_key=...</code>
+            zgodnego z <code>ADMIN_KEY</code> w pliku <code>.env</code>.
+            Bez klucza dostęp jest otwarty (ustaw klucz w produkcji!).
+          </div>
+          <div class="params-title">Query Parameters</div>
+          <table>
+            <tr><th>Parametr</th><th>Opis</th></tr>
+            <tr><td><code>admin_key</code></td><td>Klucz dostępu (z .env)</td></tr>
+          </table>
+          <div class="params-title">Request Body</div>
+          <table>
+            <tr><th>Pole</th><th>Opis</th></tr>
+            <tr><td><code>date_from</code></td><td>Pobierz od daty <code>YYYY-MM-DD</code> (domyślnie: auto)</td></tr>
+            <tr><td><code>dry_run</code></td><td>Tylko sprawdź, nie indeksuj (domyślnie: <code>false</code>)</td></tr>
+            <tr><td><code>force_all</code></td><td>Przeindeksuj wszystkie decyzje (domyślnie: <code>false</code>)</td></tr>
+            <tr><td><code>batch_size</code></td><td>Batch embeddingów (domyślnie: <code>8</code>)</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="endpoint" id="ep-update-status">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-get">GET</span>
+          <span class="endpoint-path">/api/admin/update/status</span>
+          <span class="endpoint-summary">Status ostatniej aktualizacji</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <pre>GET /api/admin/update/status
+→ {
+  <span class="key">"last_update"</span>:       <span class="str">"2026-04-03T06:12:44"</span>,
+  <span class="key">"last_indexed_date"</span>: <span class="str">"2026-04-01"</span>,
+  <span class="key">"total_indexed"</span>:     <span class="num">564</span>
+}</pre>
+        </div>
+      </div>
+
+      <div class="endpoint" id="ep-health">
+        <div class="endpoint-header" onclick="toggle(this)">
+          <span class="method-badge badge-get">GET</span>
+          <span class="endpoint-path">/health</span>
+          <span class="endpoint-summary">Health check</span>
+          <span class="endpoint-chevron">▼</span>
+        </div>
+        <div class="endpoint-body">
+          <pre>GET /health
+→ {
+  <span class="key">"status"</span>:     <span class="str">"ok"</span>,
+  <span class="key">"opensearch"</span>: <span class="str">"ok"</span>,
+  <span class="key">"embedder"</span>:   <span class="str">"ok"</span>,
+  <span class="key">"index"</span>:      <span class="str">"uodo_decisions"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  function toggle(header) {
+    header.closest('.endpoint').classList.toggle('open');
+  }
+
+  // Aktywny link w sidebar przy scrollowaniu
+  const links = document.querySelectorAll('.sidebar-link[href^="#"]');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        const id = e.target.id;
+        links.forEach(l => {
+          l.classList.toggle('active', l.getAttribute('href') === '#' + id);
+        });
+      }
+    });
+  }, { rootMargin: '-30% 0px -60% 0px' });
+
+  document.querySelectorAll('[id]').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>
