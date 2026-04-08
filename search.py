@@ -80,6 +80,39 @@ _injected_embedder = None
 _loaded_embedder = None
 
 
+def _patch_stella_mini_cpu() -> None:
+    """Wyłącza unpadding (xformers) gdy brak CUDA — patch dla stella-pl-retrieval-mini-8k.
+
+    Stosowany automatycznie przy każdym starcie: sprawdza czy patch jest już w pliku,
+    jeśli nie — aplikuje go. Dzięki temu poprawka przeżywa czyszczenie cache HuggingFace.
+    """
+    import torch
+
+    if torch.cuda.is_available():
+        return
+    try:
+        from pathlib import Path
+
+        cache = Path.home() / ".cache/huggingface/modules/transformers_modules"
+        for modeling_py in cache.glob("sdadas/stella*mini*/*/modeling.py"):
+            content = modeling_py.read_text()
+            needle = "unpad_inputs = unpad_inputs if unpad_inputs is not None else self.config.unpad_inputs"
+            patch = (
+                needle + "\n        if not torch.cuda.is_available():\n"
+                "            unpad_inputs = False  # xformers wymaga CUDA"
+            )
+            if needle in content and patch not in content:
+                modeling_py.write_text(content.replace(needle, patch))
+                # Usuń .pyc żeby Python załadował poprawiony .py
+                for pyc in modeling_py.parent.glob("__pycache__/*.pyc"):
+                    pyc.unlink(missing_ok=True)
+                logger.info(
+                    "Stella mini: patch CPU xformers zastosowany (%s)", modeling_py
+                )
+    except Exception as e:
+        logger.warning("Stella mini patch nieudany: %s", e)
+
+
 def set_embedder(embedder) -> None:
     """Wywoływane przez FastAPI lifespan — ustawia embedder globalnie."""
     global _injected_embedder
@@ -146,6 +179,8 @@ def _disable_xformers_cpu(model) -> int:
 
 def get_embedder():
     global _loaded_embedder
+
+    _patch_stella_mini_cpu()
 
     if _injected_embedder is not None:
         return _injected_embedder

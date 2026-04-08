@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useSuggest } from './hooks/useSuggest'
+import { useSuggest, SuggestItem } from './hooks/useSuggest'
 
 interface SearchInputProps {
   value:       string
@@ -33,9 +33,9 @@ export function SearchInput({
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Płaska lista wszystkich pozycji (tagi + sygnatury)
-  const allItems: { label: string; type: 'tag' | 'signature' }[] = [
-    ...results.tags.map((t)       => ({ label: t, type: 'tag'       as const })),
-    ...results.signatures.map((s) => ({ label: s, type: 'signature' as const })),
+  const allItems: { label: string; type: 'tag' | 'signature'; item?: SuggestItem }[] = [
+    ...results.tags.map((t)       => ({ label: t,             type: 'tag'       as const })),
+    ...results.signatures.map((s) => ({ label: s.signature,   type: 'signature' as const, item: s })),
   ]
 
   // Otwórz dropdown gdy są wyniki
@@ -137,23 +137,29 @@ export function SearchInput({
             </div>
           )}
 
-          {/* ── Sygnatury ── */}
+          {/* ── Sygnatury i tytuły ── */}
           {results.signatures.length > 0 && (
             <div className="rag-suggest-group">
-              <div className="rag-suggest-group-label">Sygnatury</div>
-              {results.signatures.map((sig, i) => {
+              <div className="rag-suggest-group-label">Decyzje</div>
+              {results.signatures.map((item, i) => {
                 const idx = results.tags.length + i
                 return (
                   <div
-                    key={sig}
+                    key={item.signature}
                     role="option"
                     aria-selected={active === idx}
                     className={`rag-suggest-item rag-suggest-item--sig ${active === idx ? 'rag-suggest-item--active' : ''}`}
-                    onMouseDown={(e) => { e.preventDefault(); selectItem(sig) }}
+                    onMouseDown={(e) => { e.preventDefault(); selectItem(item.signature) }}
                     onMouseEnter={() => setActive(idx)}
                   >
                     <span className="rag-suggest-icon">📄</span>
-                    <span className="rag-suggest-label">{sig}</span>
+                    <div className="rag-suggest-sig-body">
+                      <div className="rag-suggest-sig-top">
+                        <span className="rag-suggest-sig">{item.signature}</span>
+                        {item.year && <span className="rag-suggest-year">{item.year}</span>}
+                      </div>
+                      {item.title && <span className="rag-suggest-title">{item.title}</span>}
+                    </div>
                   </div>
                 )
               })}

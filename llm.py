@@ -1,6 +1,10 @@
 """
 Wywołania LLM — streaming, JSON, dekompozycja zapytania, lista modeli.
 
+Funkcje sync (call_llm_stream) używane przez Streamlit.
+Funkcje async (async_call_llm_stream) używane przez FastAPI — natywny async
+z httpx/AsyncGroq, brak blokowania event loop, każdy token flushed natychmiast.
+
 Obsługiwani providerzy:
   - Ollama — lokalny daemon (domyślnie http://localhost:11434).
              Modele cloud (np. "gpt-oss:120b-cloud") wymagają OLLAMA_CLOUD_API_KEY
@@ -15,7 +19,7 @@ LLM analizuje pytanie PRZED wyszukiwaniem zamiast szukać surowej frazy.
 
 import json as _json
 import logging
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from typing import Any
 
 import requests as _req
@@ -137,7 +141,6 @@ def call_llm_stream(
             "model": model,
             "messages": messages,
             "stream": True,
-            "options": {"num_predict": 1024},
         },
         stream=True,
         timeout=120,
@@ -153,6 +156,79 @@ def call_llm_stream(
                     break
             except Exception:
                 pass
+
+
+async def async_call_llm_stream(
+    query: str,
+    context: str,
+    provider: str | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> AsyncGenerator[str, None]:
+    """
+    Async generator tokenów z LLM — używany przez FastAPI StreamingResponse.
+
+    Używa httpx.AsyncClient dla Ollamy i AsyncGroq dla Groq.
+    Nie blokuje pętli asyncio — każdy token jest yieldowany natychmiast
+    po odebraniu z sieci, bez pośredniej kolejki ani wątku tła.
+    """
+    provider, model, api_key = _get_llm_params(provider, model, api_key)
+
+    system = (
+        "Jesteś ekspertem ds. ochrony danych osobowych i prawa RODO. "
+        "Pomagasz analizować decyzje Prezesa UODO oraz przepisy ustawy o ochronie danych osobowych. "
+        "Odpowiadaj po polsku, precyzyjnie i zwięźle. "
+        "Zawsze powołuj się na konkretne decyzje UODO podając sygnatury [np. DKN.XXXX.XX.XXXX, ZSOŚS, i in.] "
+        "lub artykuły ustawy [np. Art. X u.o.d.o.]. "
+        "Jeśli kontekst nie zawiera odpowiedzi na pytanie, powiedz o tym wprost."
+    )
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": f"Pytanie: {query}\n\nDokumenty:\n{context}"},
+    ]
+
+    if provider == "Groq":
+        from groq import AsyncGroq
+
+        client = AsyncGroq(api_key=api_key or GROQ_API_KEY)
+        async with await client.chat.completions.create(  # type: ignore[call-overload]
+            model=model or "",
+            messages=messages,  # type: ignore[arg-type]
+            max_tokens=1024,
+            stream=True,
+        ) as stream:
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+        return
+
+    # Ollama — async streaming przez httpx, bez blokowania event loop
+    import httpx
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        async with client.stream(
+            "POST",
+            f"{OLLAMA_URL}/api/chat",
+            headers=_ollama_headers(),
+            json={
+                "model": model,
+                "messages": messages,
+                "stream": True,
+            },
+        ) as resp:
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    data = _json.loads(line)
+                    token = data.get("message", {}).get("content", "")
+                    if token:
+                        yield token
+                    if data.get("done"):
+                        break
+                except Exception:
+                    pass
 
 
 def call_llm_json(

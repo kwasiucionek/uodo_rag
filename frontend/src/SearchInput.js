@@ -18,7 +18,7 @@ export function SearchInput({ value, onChange, onSearch, disabled = false, place
     // Płaska lista wszystkich pozycji (tagi + sygnatury)
     const allItems = [
         ...results.tags.map((t) => ({ label: t, type: 'tag' })),
-        ...results.signatures.map((s) => ({ label: s, type: 'signature' })),
+        ...results.signatures.map((s) => ({ label: s.signature, type: 'signature', item: s })),
     ];
     // Otwórz dropdown gdy są wyniki
     useEffect(() => {
@@ -73,8 +73,8 @@ export function SearchInput({ value, onChange, onSearch, disabled = false, place
     return (_jsxs("div", { className: "rag-suggest-wrapper", children: [_jsx("input", { ref: inputRef, type: "text", value: value, onChange: (e) => onChange(e.target.value), onKeyDown: handleKeyDown, onFocus: () => total > 0 && setOpen(true), placeholder: placeholder, className: "rag-search-input", disabled: disabled, "aria-label": "Wyszukaj decyzje UODO", "aria-autocomplete": "list", "aria-expanded": open, autoComplete: "off" }), open && (_jsxs("div", { ref: dropdownRef, className: "rag-suggest-dropdown", role: "listbox", children: [results.tags.length > 0 && (_jsxs("div", { className: "rag-suggest-group", children: [_jsx("div", { className: "rag-suggest-group-label", children: "Tagi" }), results.tags.map((tag, i) => {
                                 const idx = i;
                                 return (_jsxs("div", { role: "option", "aria-selected": active === idx, className: `rag-suggest-item rag-suggest-item--tag ${active === idx ? 'rag-suggest-item--active' : ''}`, onMouseDown: (e) => { e.preventDefault(); selectItem(tag); }, onMouseEnter: () => setActive(idx), children: [_jsx("span", { className: "rag-suggest-icon", children: "\uD83C\uDFF7" }), _jsx("span", { className: "rag-suggest-label", children: tag })] }, tag));
-                            })] })), results.signatures.length > 0 && (_jsxs("div", { className: "rag-suggest-group", children: [_jsx("div", { className: "rag-suggest-group-label", children: "Sygnatury" }), results.signatures.map((sig, i) => {
+                            })] })), results.signatures.length > 0 && (_jsxs("div", { className: "rag-suggest-group", children: [_jsx("div", { className: "rag-suggest-group-label", children: "Decyzje" }), results.signatures.map((item, i) => {
                                 const idx = results.tags.length + i;
-                                return (_jsxs("div", { role: "option", "aria-selected": active === idx, className: `rag-suggest-item rag-suggest-item--sig ${active === idx ? 'rag-suggest-item--active' : ''}`, onMouseDown: (e) => { e.preventDefault(); selectItem(sig); }, onMouseEnter: () => setActive(idx), children: [_jsx("span", { className: "rag-suggest-icon", children: "\uD83D\uDCC4" }), _jsx("span", { className: "rag-suggest-label", children: sig })] }, sig));
+                                return (_jsxs("div", { role: "option", "aria-selected": active === idx, className: `rag-suggest-item rag-suggest-item--sig ${active === idx ? 'rag-suggest-item--active' : ''}`, onMouseDown: (e) => { e.preventDefault(); selectItem(item.signature); }, onMouseEnter: () => setActive(idx), children: [_jsx("span", { className: "rag-suggest-icon", children: "\uD83D\uDCC4" }), _jsxs("div", { className: "rag-suggest-sig-body", children: [_jsxs("div", { className: "rag-suggest-sig-top", children: [_jsx("span", { className: "rag-suggest-sig", children: item.signature }), item.year && _jsx("span", { className: "rag-suggest-year", children: item.year })] }), item.title && _jsx("span", { className: "rag-suggest-title", children: item.title })] })] }, item.signature));
                             })] }))] }))] }));
 }

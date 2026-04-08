@@ -1,9 +1,10 @@
-import { useCallback, useRef, useState } from 'react';
-import { api } from '../api';
+import { useCallback, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { api } from "../api";
 const INITIAL_STATE = {
     allDocs: [],
     tags: [],
-    answer: '',
+    answer: "",
     searchTime: 0,
     total: 0,
     loadingDocs: false,
@@ -27,10 +28,12 @@ export function useSearch(options) {
         try {
             // Dekompozycja zapytania
             let searchQuery;
-            if (useLLM && query.split(' ').length > 3) {
+            if (useLLM && query.split(" ").length > 3) {
                 try {
                     const decomposed = await api.decompose(query, provider, model);
-                    searchQuery = decomposed.search_keywords.slice(0, 3).join(' ');
+                    searchQuery = decomposed.search_keywords
+                        .slice(0, 3)
+                        .join(" ");
                 }
                 catch {
                     // fallback
@@ -54,8 +57,24 @@ export function useSearch(options) {
             }));
             // Streaming LLM — tylko pierwsze 8 dokumentów
             if (useLLM && result.docs.length > 0) {
-                setState((s) => ({ ...s, answer: '', loadingAnswer: true }));
-                stopStreamRef.current = api.streamAnswer({ query, docs: result.docs.slice(0, 8), provider, model }, (token) => setState((s) => ({ ...s, answer: s.answer + token })), () => setState((s) => ({ ...s, loadingAnswer: false })), (msg) => setState((s) => ({ ...s, loadingAnswer: false, error: msg })));
+                setState((s) => ({
+                    ...s,
+                    answer: "",
+                    loadingAnswer: true,
+                }));
+                stopStreamRef.current = api.streamAnswer({
+                    query,
+                    docs: result.docs.slice(0, 8),
+                    provider,
+                    model,
+                }, (token) => flushSync(() => setState((s) => ({
+                    ...s,
+                    answer: s.answer + token,
+                }))), () => setState((s) => ({ ...s, loadingAnswer: false })), (msg) => setState((s) => ({
+                    ...s,
+                    loadingAnswer: false,
+                    error: msg,
+                })));
             }
         }
         catch (err) {

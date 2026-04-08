@@ -21,7 +21,6 @@ Zmienne środowiskowe (z .env):
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -76,23 +75,21 @@ async def lifespan(app: FastAPI):
     _device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info("Urządzenie: %s", _device)
 
+    # Patch stella-mini: wyłącza unpadding (xformers) gdy brak CUDA.
+    # Musi być wywołany PRZED załadowaniem modelu, żeby Python wczytał
+    # już poprawiony modeling.py z cache HuggingFace.
+    from search import _patch_stella_mini_cpu
+
+    _patch_stella_mini_cpu()
+
     app.state.embedder = SentenceTransformer(
         EMBED_MODEL, trust_remote_code=True, device=_device
     )
-
-    if _device == "cpu":
-        # Modele z custom kodem (np. stella-pl-retrieval-mini-8k) ignorują
-        # attn_implementation="eager" i bezpośrednio wywołują xformers,
-        # który wymaga CUDA. Wyłączamy xformers ręcznie po załadowaniu.
-        from search import _disable_xformers_cpu
-
-        _disable_xformers_cpu(app.state.embedder)
-    else:
+    if _device != "cpu":
         try:
             app.state.embedder = app.state.embedder.half()
         except Exception:
             pass
-
     logger.info("Model załadowany (device=%s).", _device)
 
     from opensearchpy import OpenSearch
@@ -466,44 +463,18 @@ async def answer_stream(
     context = _build_context_from_docs(req.docs, req.query)
 
     async def event_generator():
-        # requests jest synchroniczne i blokowałoby pętlę asyncio, gdyby
-        # wywołać je bezpośrednio. Uruchamiamy generator w wątku tła przez
-        # run_in_executor i przekazujemy tokeny przez asyncio.Queue.
-        loop = asyncio.get_running_loop()
-        q: asyncio.Queue = asyncio.Queue()
-
-        def produce() -> None:
-            try:
-                for token in llm.stream(req.query, context, req.provider, req.model):
-                    asyncio.run_coroutine_threadsafe(
-                        q.put(("token", token)), loop
-                    ).result()
-            except Exception as exc:
-                asyncio.run_coroutine_threadsafe(
-                    q.put(("error", str(exc))), loop
-                ).result()
-            finally:
-                asyncio.run_coroutine_threadsafe(q.put(("done", None)), loop).result()
-
-        fut = loop.run_in_executor(None, produce)
         try:
-            while True:
-                kind, value = await q.get()
-                if kind == "done":
-                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
-                    break
-                if kind == "error":
-                    payload = json.dumps(
-                        {"type": "error", "message": value}, ensure_ascii=False
-                    )
-                    yield f"data: {payload}\n\n"
-                    break
+            for token in llm.stream(req.query, context, req.provider, req.model):
                 payload = json.dumps(
-                    {"type": "token", "content": value}, ensure_ascii=False
+                    {"type": "token", "content": token}, ensure_ascii=False
                 )
                 yield f"data: {payload}\n\n"
-        finally:
-            await fut
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        except Exception as e:
+            payload = json.dumps(
+                {"type": "error", "message": str(e)}, ensure_ascii=False
+            )
+            yield f"data: {payload}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -651,9 +622,16 @@ async def get_full_document(
 # ─────────────────────────── SUGGEST ─────────────────────────────
 
 
+class SuggestItem(BaseModel):
+    signature: str
+    title: str | None = None
+    year: int | None = None
+    status: str | None = None
+
+
 class SuggestResponse(BaseModel):
     tags: list[str]
-    signatures: list[str]
+    signatures: list[SuggestItem]
 
 
 @app.get("/api/suggest", response_model=SuggestResponse)
@@ -702,29 +680,62 @@ async def suggest(
     contains_tags = [t for t in all_tags if not t.lower().startswith(q_lower)]
     tags = (prefix_tags + contains_tags)[:half]
 
+    base_must = [
+        {"term": {"doc_type": "uodo_decision"}},
+        {"term": {"chunk_index": 0}},
+    ]
+
+    def _to_item(src: dict) -> SuggestItem:
+        title = src.get("title_full") or src.get("title") or ""
+        return SuggestItem(
+            signature=src["signature"],
+            title=title[:80] if title else None,
+            year=src.get("year"),
+            status=src.get("status"),
+        )
+
     # ── Sygnatury (prefix match na polu signature) ──
     sig_resp = client.search(
         index=OPENSEARCH_INDEX,
         body={
             "query": {
-                "bool": {
-                    "must": [
-                        {"term": {"doc_type": "uodo_decision"}},
-                        {"term": {"chunk_index": 0}},
-                        {"prefix": {"signature": q.upper()}},
-                    ]
-                }
+                "bool": {"must": base_must + [{"prefix": {"signature": q.upper()}}]}
             },
-            "_source": ["signature"],
+            "_source": ["signature", "title_full", "title", "year", "status"],
             "size": half,
             "sort": [{"year": "desc"}, {"_id": "asc"}],
             "collapse": {"field": "signature"},
         },
     )
-    signatures = [
-        h["_source"]["signature"]
+    sig_items = [
+        _to_item(h["_source"])
         for h in sig_resp["hits"]["hits"]
         if h["_source"].get("signature")
     ]
 
-    return SuggestResponse(tags=tags, signatures=signatures)
+    # ── Tytuły (match na polu title_full) ──
+    title_resp = client.search(
+        index=OPENSEARCH_INDEX,
+        body={
+            "query": {"bool": {"must": base_must + [{"match": {"title_full": q}}]}},
+            "_source": ["signature", "title_full", "title", "year", "status"],
+            "size": half,
+            "sort": [{"year": "desc"}],
+            "collapse": {"field": "signature"},
+        },
+    )
+    title_items = [
+        _to_item(h["_source"])
+        for h in title_resp["hits"]["hits"]
+        if h["_source"].get("signature")
+    ]
+
+    # Połącz sygnatury i tytuły (deduplikacja)
+    seen: set[str] = set()
+    combined: list[SuggestItem] = []
+    for item in sig_items + title_items:
+        if item.signature not in seen:
+            seen.add(item.signature)
+            combined.append(item)
+
+    return SuggestResponse(tags=tags, signatures=combined[:limit])

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-const API_URL = import.meta.env.VITE_API_URL || "";
+import { useEffect, useRef, useState } from 'react';
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 const EMPTY = { tags: [], signatures: [] };
 export function useSuggest(query, delay = 300) {
     const [results, setResults] = useState(EMPTY);
@@ -12,11 +12,9 @@ export function useSuggest(query, delay = 300) {
             setLoading(false);
             return;
         }
-        // Debounce
         if (timerRef.current)
             clearTimeout(timerRef.current);
         timerRef.current = setTimeout(async () => {
-            // Anuluj poprzednie żądanie
             abortRef.current?.abort();
             abortRef.current = new AbortController();
             setLoading(true);
@@ -28,7 +26,7 @@ export function useSuggest(query, delay = 300) {
                 setResults(data);
             }
             catch (e) {
-                if (e.name !== "AbortError")
+                if (e.name !== 'AbortError')
                     setResults(EMPTY);
             }
             finally {
