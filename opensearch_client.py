@@ -57,10 +57,16 @@ def _ensure_rrf_pipeline(client: OpenSearch) -> None:
             "PUT",
             f"/_search/pipeline/{RRF_PIPELINE_ID}",
             body={
-                "description": "Hybrid BM25 + kNN with RRF for UODO RAG",
-                "phase_results_processors": [
-                    {"score-ranker-processor": {"combination": {"technique": "rrf"}}}
-                ],
+                "description": "Hybrid BM25 + kNN normalization for UODO RAG",
+                "phase_results_processors": [{
+                    "normalization-processor": {
+                        "normalization": {"technique": "min_max"},
+                        "combination": {
+                            "technique": "arithmetic_mean",
+                            "parameters": {"weights": [0.3, 0.7]}
+                        }
+                    }
+                }],
             },
         )
         _rrf_available = True

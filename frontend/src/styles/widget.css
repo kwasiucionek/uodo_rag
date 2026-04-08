@@ -58,6 +58,8 @@
 
 .uodo-rag-widget .rag-search-input {
     width: 100%;
+    box-sizing: border-box;
+    height: 54px;
     padding: 0 1rem;
     border: 1px solid var(--uodo-blue-60);
     border-right: none;
@@ -1146,6 +1148,7 @@
 .uodo-rag-widget .rag-suggest-wrapper {
     position: relative;
     flex: 1;
+    min-width: 0; /* zapobiega overflow w flexboxie — bez tego input wylewa się na przycisk */
 }
 
 .uodo-rag-widget .rag-suggest-dropdown {
